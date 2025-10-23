@@ -1,0 +1,4 @@
+# requirements.txt
+streamlit==1.28.0
+spacy==3.7.0
+python-multipart==0.0.6

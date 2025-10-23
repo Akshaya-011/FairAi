@@ -1,0 +1,17 @@
+# data/sample_resumes/sample1.txt
+John Doe
+Software Developer
+
+EXPERIENCE:
+Software Developer, Tech Company (2020-Present)
+- Developed web applications using Python and JavaScript
+- Led a team of 3 developers on a React project
+- Implemented RESTful APIs with Node.js
+- Managed SQL databases and optimized queries
+
+SKILLS:
+Technical: Python, JavaScript, React, Node.js, SQL, HTML, CSS
+Soft Skills: Communication, Teamwork, Leadership, Problem Solving
+
+EDUCATION:
+Bachelor of Computer Science, University (2016-2020)

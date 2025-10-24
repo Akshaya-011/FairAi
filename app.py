@@ -20,6 +20,9 @@ try:
     from utils.bias_detector import detect_bias_in_text, analyze_question_fairness, generate_bias_report
     from utils.resume_parser import build_skills_graph, get_skills_by_category, calculate_skill_metrics
     from utils.visualizer import create_skills_network, plot_skill_categories, create_category_barchart, create_confidence_heatmap
+    # NEW: Import the new modules
+    from utils.bias_heatmap import BiasHeatmapGenerator, bias_heatmap
+    from utils.difficulty_manager import DifficultyManager, difficulty_manager
 except ImportError as e:
     st.error(f"Some modules not found: {e}")
     
@@ -46,6 +49,28 @@ except ImportError as e:
         def analyze_answer_depth(self, *args): return {"success": False}
         def generate_follow_up_question(self, *args): return {"success": False}
     
+    # NEW: Fallback implementations for the new modules
+    class BiasHeatmapGenerator:
+        def generate_real_time_heatmap(self, interview_data):
+            fig = go.Figure()
+            fig.update_layout(title="Bias Heatmap (Module Not Available)")
+            return fig
+        def generate_trend_analysis(self, bias_history):
+            fig = go.Figure()
+            fig.update_layout(title="Trend Analysis (Module Not Available)")
+            return fig
+    
+    class DifficultyManager:
+        def assess_answer_quality(self, answer, question_type):
+            return 5
+        def get_next_difficulty(self, current_difficulty, recent_scores):
+            return current_difficulty
+        def get_question_for_difficulty(self, difficulty, skill, question_type='technical'):
+            return f"Tell me about your experience with {skill}"
+    
+    bias_heatmap = BiasHeatmapGenerator()
+    difficulty_manager = DifficultyManager()
+    
     def detect_bias_in_text(text): 
         return {"bias_types": [], "severity": "Low"}
     def build_skills_graph(*args): return {}
@@ -62,11 +87,17 @@ class FairAIHireApp:
             self.parser = ResumeParser()
             self.question_gen = QuestionGenerator()
             self.ai_enhancer = AIEnhancer()
+            # NEW: Initialize the new components
+            self.bias_heatmap = bias_heatmap
+            self.difficulty_manager = difficulty_manager
         except Exception as e:
             st.error(f"Error initializing: {e}")
             self.parser = ResumeParser()
             self.question_gen = QuestionGenerator()
             self.ai_enhancer = AIEnhancer()
+            # NEW: Initialize fallbacks
+            self.bias_heatmap = bias_heatmap
+            self.difficulty_manager = difficulty_manager
         
         self.setup_page()
     
@@ -185,6 +216,10 @@ class FairAIHireApp:
             'follow_up_questions': [],
             'skills_graph': {},
             'skills_data': {},
+            # NEW: Add difficulty tracking and bias history
+            'current_difficulty': 'Medium',
+            'answer_scores': [],
+            'bias_history': [],
             'interview_data': {
                 'questions': [], 'answers': [], 'bias_analysis': [],
                 'start_time': None, 'end_time': None
@@ -261,6 +296,31 @@ class FairAIHireApp:
             # Run bias detection
             bias_result = detect_bias_in_text(answer_text)
             st.session_state.bias_reports[question_index] = bias_result
+            
+            # NEW: Assess answer quality and update difficulty
+            current_question = st.session_state.interview_questions[question_index]
+            question_type = 'technical' if any(skill[0].lower() in current_question.lower() 
+                                            for skill in st.session_state.candidate_skills 
+                                            if skill[1] == 'technical') else 'soft'
+            
+            quality_score = self.difficulty_manager.assess_answer_quality(answer_text, question_type)
+            st.session_state.answer_scores.append(quality_score)
+            
+            # Update difficulty based on recent performance
+            recent_scores = st.session_state.answer_scores[-3:]  # Last 3 answers
+            new_difficulty = self.difficulty_manager.get_next_difficulty(
+                st.session_state.current_difficulty, recent_scores
+            )
+            st.session_state.current_difficulty = new_difficulty
+            
+            # NEW: Update bias history for trend analysis
+            bias_entry = {
+                'timestamp': datetime.now(),
+                'high_count': len([r for r in st.session_state.bias_reports if r and r.get('severity') == 'High']),
+                'medium_count': len([r for r in st.session_state.bias_reports if r and r.get('severity') == 'Medium']),
+                'low_count': len([r for r in st.session_state.bias_reports if r and r.get('severity') == 'Low'])
+            }
+            st.session_state.bias_history.append(bias_entry)
             
             # Run AI analysis if enabled
             if st.session_state.ai_enabled and self.ai_enhancer.available:
@@ -621,8 +681,16 @@ Skills: Python, React, SQL, Teamwork, Communication""",
         completeness_score = self.calculate_interview_completeness()
         fairness_score = self.calculate_overall_fairness_score()
         
-        # Overall Metrics Row
-        col1, col2, col3, col4 = st.columns(4)
+        # NEW: Add difficulty level to metrics
+        difficulty_emoji = {
+            'Easy': '🟢', 
+            'Medium': '🟡', 
+            'Hard': '🟠', 
+            'Expert': '🔴'
+        }
+        
+        # Overall Metrics Row - UPDATED with difficulty
+        col1, col2, col3, col4, col5 = st.columns(5)
         
         with col1:
             st.markdown(f"""
@@ -662,6 +730,15 @@ Skills: Python, React, SQL, Teamwork, Communication""",
             </div>
             """, unsafe_allow_html=True)
         
+        with col5:
+            st.markdown(f"""
+            <div class="summary-card" style="background: linear-gradient(135deg, #6f42c1 0%, #e83e8c 100%);">
+                <h3>📊 Difficulty</h3>
+                <h2>{difficulty_emoji.get(st.session_state.current_difficulty, '⚪')} {st.session_state.current_difficulty}</h2>
+                <p>Adaptive Level</p>
+            </div>
+            """, unsafe_allow_html=True)
+        
         # AI Enhancement Status
         if st.session_state.ai_enabled:
             ai_status = "🟢 Active" if self.ai_enhancer.available else "🔴 Unavailable"
@@ -672,7 +749,7 @@ Skills: Python, React, SQL, Teamwork, Communication""",
             </div>
             """, unsafe_allow_html=True)
         
-        # Visualizations Section
+        # Visualizations Section - UPDATED with new heatmap
         st.markdown("### 📊 Visual Analytics")
         
         col1, col2 = st.columns(2)
@@ -683,14 +760,21 @@ Skills: Python, React, SQL, Teamwork, Communication""",
             self.display_skills_chart()
         
         with col2:
-            # Bias Heat Map
-            st.markdown("**🔥 Bias Detection Heat Map**")
-            self.display_bias_heatmap()
+            # NEW: Bias Heatmap using the new module
+            st.markdown("**🔥 Real-time Bias Heatmap**")
+            heatmap_fig = self.bias_heatmap.generate_real_time_heatmap(st.session_state.interview_data)
+            st.plotly_chart(heatmap_fig, use_container_width=True, key="bias_heatmap")
+        
+        # NEW: Trend Analysis Row
+        if len(st.session_state.bias_history) > 1:
+            st.markdown("### 📈 Bias Trend Analysis")
+            trend_fig = self.bias_heatmap.generate_trend_analysis(st.session_state.bias_history)
+            st.plotly_chart(trend_fig, use_container_width=True, key="bias_trend")
         
         # Detailed Breakdown Section
         st.markdown("### 📋 Detailed Analysis")
         
-        tab1, tab2, tab3, tab4 = st.tabs(["🔍 Skills Analysis", "⚠️ Bias Alerts", "🤖 AI Insights", "💡 Recommendations"])
+        tab1, tab2, tab3, tab4, tab5 = st.tabs(["🔍 Skills Analysis", "⚠️ Bias Alerts", "📊 Performance", "🤖 AI Insights", "💡 Recommendations"])
         
         with tab1:
             self.display_skills_analysis()
@@ -699,9 +783,12 @@ Skills: Python, React, SQL, Teamwork, Communication""",
             self.display_bias_analysis()
         
         with tab3:
-            self.display_ai_insights()
+            self.display_performance_analysis()  # NEW tab
         
         with tab4:
+            self.display_ai_insights()
+        
+        with tab5:
             self.display_recommendations()
         
         # Export Functionality
@@ -724,7 +811,71 @@ Skills: Python, React, SQL, Teamwork, Communication""",
             if st.button("🔄 Start New Interview", type="primary", use_container_width=True, key="new_interview"):
                 self.reset_interview()
                 st.rerun()
-
+    
+    def display_performance_analysis(self):
+        """NEW: Display performance analysis with difficulty tracking"""
+        st.markdown("#### 📊 Performance & Difficulty Analysis")
+        
+        if not st.session_state.answer_scores:
+            st.info("Complete some questions to see performance analysis")
+            return
+        
+        # Performance metrics
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            avg_score = sum(st.session_state.answer_scores) / len(st.session_state.answer_scores)
+            st.metric("Average Answer Quality", f"{avg_score:.1f}/10")
+        
+        with col2:
+            st.metric("Current Difficulty", st.session_state.current_difficulty)
+        
+        with col3:
+            improvement = "↑ Improving" if len(st.session_state.answer_scores) > 1 and st.session_state.answer_scores[-1] > st.session_state.answer_scores[0] else "→ Stable"
+            st.metric("Performance Trend", improvement)
+        
+        # Score progression chart
+        if len(st.session_state.answer_scores) > 1:
+            st.markdown("#### 📈 Answer Quality Progression")
+            fig = go.Figure()
+            
+            fig.add_trace(go.Scatter(
+                x=list(range(1, len(st.session_state.answer_scores) + 1)),
+                y=st.session_state.answer_scores,
+                mode='lines+markers',
+                name='Answer Quality',
+                line=dict(color='#1f77b4', width=3),
+                marker=dict(size=8)
+            ))
+            
+            # Add difficulty level zones
+            difficulty_zones = {
+                'Easy': (0, 4, 'rgba(40, 167, 69, 0.1)'),
+                'Medium': (4, 7, 'rgba(255, 193, 7, 0.1)'),
+                'Hard': (7, 9, 'rgba(253, 126, 20, 0.1)'),
+                'Expert': (9, 11, 'rgba(220, 53, 69, 0.1)')
+            }
+            
+            for level, (low, high, color) in difficulty_zones.items():
+                fig.add_hrect(
+                    y0=low, y1=high,
+                    fillcolor=color,
+                    opacity=0.3,
+                    line_width=0,
+                    annotation_text=level,
+                    annotation_position="inside top left"
+                )
+            
+            fig.update_layout(
+                title="Answer Quality Progression with Difficulty Zones",
+                xaxis_title="Question Number",
+                yaxis_title="Quality Score (1-10)",
+                height=400,
+                showlegend=False
+            )
+            
+            st.plotly_chart(fig, use_container_width=True, key="performance_chart")
+    
     def display_ai_insights(self):
         """Display AI-powered insights and analysis"""
         st.markdown("#### 🤖 AI-Powered Insights")
@@ -1013,6 +1164,7 @@ Skills: Python, React, SQL, Teamwork, Communication""",
         report_lines.append(f"  • Bias Alert Level: {self.calculate_bias_alert_level()[0]}")
         report_lines.append(f"  • Interview Completeness: {self.calculate_interview_completeness()}%")
         report_lines.append(f"  • Overall Fairness Score: {self.calculate_overall_fairness_score()}/10")
+        report_lines.append(f"  • Final Difficulty Level: {st.session_state.current_difficulty}")
         report_lines.append("")
         
         # Skills Analysis
@@ -1036,6 +1188,14 @@ Skills: Python, React, SQL, Teamwork, Communication""",
         
         if bias_count == 0:
             report_lines.append("  • No biases detected - Excellent!")
+        report_lines.append("")
+        
+        # Performance Analysis
+        report_lines.append("PERFORMANCE ANALYSIS:")
+        if st.session_state.answer_scores:
+            avg_score = sum(st.session_state.answer_scores) / len(st.session_state.answer_scores)
+            report_lines.append(f"  • Average Answer Quality: {avg_score:.1f}/10")
+            report_lines.append(f"  • Questions Answered: {len([a for a in st.session_state.candidate_answers if a.strip()])}")
         report_lines.append("")
         
         # Recommendations
@@ -1080,6 +1240,7 @@ Skills: Python, React, SQL, Teamwork, Communication""",
                 st.success("✅ Resume Analyzed")
                 st.write(f"Skills Found: {len(st.session_state.candidate_skills)}")
                 st.write(f"Experience: {st.session_state.candidate_experience}")
+                st.write(f"Difficulty: {st.session_state.current_difficulty}")
             
             if st.session_state.interview_started:
                 st.success("✅ Interview Started")
@@ -1106,40 +1267,6 @@ Skills: Python, React, SQL, Teamwork, Communication""",
             - Avoid personal details that could introduce bias
             """)
     
-    def run(self):
-        """Main application runner"""
-        self.initialize_session_state()
-        self.display_header()
-        
-        # Create tabs for different sections
-        if st.session_state.interview_completed:
-            tab1, tab2, tab3 = st.tabs(["📊 Fairness Dashboard", "🕸️ Skills Visualization", "🎤 Interview Review"])
-        elif st.session_state.resume_analyzed:
-            tab1, tab2, tab3 = st.tabs(["🎤 Interview", "🕸️ Skills Visualization", "📊 Dashboard Preview"])
-        else:
-            tab1, tab2, tab3 = st.tabs(["🎤 Interview", "🕸️ Skills Visualization", "📊 Dashboard Preview"])
-        
-        with tab1:
-            if not st.session_state.resume_analyzed:
-                self.resume_analysis_section()
-            else:
-                if not st.session_state.interview_completed:
-                    self.display_skills()
-                    self.interview_section()
-                else:
-                    self.display_fairness_dashboard()
-        
-        with tab2:
-            self.skills_visualization_section()
-        
-        with tab3:
-            if st.session_state.interview_completed:
-                self.display_detailed_question_review()
-            else:
-                st.info("Complete the interview to see the comprehensive fairness dashboard!")
-        
-        self.sidebar_controls()
-
     def display_detailed_question_review(self):
         """Display detailed question-by-question review in separate tab"""
         st.markdown('<div class="section-header">📋 Detailed Question Review</div>', unsafe_allow_html=True)
@@ -1191,6 +1318,40 @@ Skills: Python, React, SQL, Teamwork, Communication""",
                         st.session_state.ai_enabled and self.ai_enhancer.available):
                         st.markdown("**🤖 Suggested Follow-up:**")
                         st.info(follow_up.get('follow_up_question', ''))
+    
+    def run(self):
+        """Main application runner"""
+        self.initialize_session_state()
+        self.display_header()
+        
+        # Create tabs for different sections
+        if st.session_state.interview_completed:
+            tab1, tab2, tab3 = st.tabs(["📊 Fairness Dashboard", "🕸️ Skills Visualization", "🎤 Interview Review"])
+        elif st.session_state.resume_analyzed:
+            tab1, tab2, tab3 = st.tabs(["🎤 Interview", "🕸️ Skills Visualization", "📊 Dashboard Preview"])
+        else:
+            tab1, tab2, tab3 = st.tabs(["🎤 Interview", "🕸️ Skills Visualization", "📊 Dashboard Preview"])
+        
+        with tab1:
+            if not st.session_state.resume_analyzed:
+                self.resume_analysis_section()
+            else:
+                if not st.session_state.interview_completed:
+                    self.display_skills()
+                    self.interview_section()
+                else:
+                    self.display_fairness_dashboard()
+        
+        with tab2:
+            self.skills_visualization_section()
+        
+        with tab3:
+            if st.session_state.interview_completed:
+                self.display_detailed_question_review()
+            else:
+                st.info("Complete the interview to see the comprehensive fairness dashboard!")
+        
+        self.sidebar_controls()
 
 # Run the application
 if __name__ == "__main__":

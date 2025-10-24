@@ -9,13 +9,14 @@ import numpy as np
 sys.path.append(os.path.join(os.path.dirname(__file__), 'utils'))
 
 # Import from your utils package structure
-from utils import ResumeParser, QuestionGenerator
+from utils import ResumeParser, QuestionGenerator, AIEnhancer
 from utils.bias_detector import detect_bias_in_text, analyze_question_fairness, generate_bias_report
 
 class FairAIHireApp:
     def __init__(self):
         self.parser = ResumeParser()
         self.question_gen = QuestionGenerator()
+        self.ai_enhancer = AIEnhancer()
         self.setup_page()
     
     def setup_page(self):
@@ -66,6 +67,17 @@ class FairAIHireApp:
             padding: 1.5rem;
             border-radius: 10px;
             border-left: 6px solid #1f77b4;
+            margin: 1rem 0;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        
+        /* AI Enhanced question styling */
+        .ai-enhanced-box {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 1.5rem;
+            border-radius: 10px;
+            border-left: 6px solid #ffd700;
             margin: 1rem 0;
             box-shadow: 0 4px 6px rgba(0,0,0,0.1);
         }
@@ -164,6 +176,23 @@ class FairAIHireApp:
         .heatmap-low { background-color: #28a745; color: white; padding: 0.5rem; border-radius: 5px; }
         .heatmap-medium { background-color: #ffc107; color: black; padding: 0.5rem; border-radius: 5px; }
         .heatmap-high { background-color: #dc3545; color: white; padding: 0.5rem; border-radius: 5px; }
+        
+        /* AI Analysis styling */
+        .ai-analysis-box {
+            background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);
+            color: white;
+            padding: 1rem;
+            border-radius: 8px;
+            margin: 0.5rem 0;
+        }
+        
+        .ai-warning-box {
+            background: linear-gradient(135deg, #ff9800 0%, #f57c00 100%);
+            color: white;
+            padding: 1rem;
+            border-radius: 8px;
+            margin: 0.5rem 0;
+        }
         </style>
         """, unsafe_allow_html=True)
     
@@ -196,6 +225,15 @@ class FairAIHireApp:
                 'start_time': None,
                 'end_time': None
             }
+        # AI Enhancement session state
+        if 'ai_enabled' not in st.session_state:
+            st.session_state.ai_enabled = False
+        if 'ai_enhanced_questions' not in st.session_state:
+            st.session_state.ai_enhanced_questions = []
+        if 'answer_analysis' not in st.session_state:
+            st.session_state.answer_analysis = []
+        if 'follow_up_questions' not in st.session_state:
+            st.session_state.follow_up_questions = []
     
     def reset_interview(self):
         """Reset the interview session"""
@@ -215,6 +253,10 @@ class FairAIHireApp:
             'start_time': None,
             'end_time': None
         }
+        # Reset AI enhancement data
+        st.session_state.ai_enhanced_questions = []
+        st.session_state.answer_analysis = []
+        st.session_state.follow_up_questions = []
     
     def analyze_resume(self, resume_text):
         """Analyze resume and extract skills/experience"""
@@ -243,9 +285,23 @@ class FairAIHireApp:
             st.session_state.interview_questions = questions
             st.session_state.candidate_answers = [""] * len(questions)
             st.session_state.bias_reports = [None] * len(questions)
+            st.session_state.answer_analysis = [None] * len(questions)
+            st.session_state.follow_up_questions = [None] * len(questions)
             st.session_state.interview_started = True
             st.session_state.interview_data['questions'] = questions
             st.session_state.interview_data['start_time'] = datetime.now()
+            
+            # Generate AI-enhanced questions if enabled
+            if st.session_state.ai_enabled and self.ai_enhancer.available:
+                with st.spinner("🤖 Enhancing questions with AI..."):
+                    st.session_state.ai_enhanced_questions = []
+                    for i, question in enumerate(questions):
+                        enhanced = self.ai_enhancer.improve_question(
+                            question, 
+                            f"Skills: {[skill[0] for skill in st.session_state.candidate_skills]}"
+                        )
+                        st.session_state.ai_enhanced_questions.append(enhanced)
+            
             return True
         except Exception as e:
             st.error(f"Error generating questions: {str(e)}")
@@ -259,6 +315,29 @@ class FairAIHireApp:
             # Run bias detection on the answer
             bias_result = detect_bias_in_text(answer_text)
             st.session_state.bias_reports[question_index] = bias_result
+            
+            # Run AI analysis if enabled
+            if st.session_state.ai_enabled and self.ai_enhancer.available:
+                with st.spinner("🤖 Analyzing answer depth..."):
+                    skills_list = [skill[0] for skill in st.session_state.candidate_skills]
+                    analysis = self.ai_enhancer.analyze_answer_depth(
+                        answer_text, 
+                        st.session_state.interview_questions[question_index],
+                        skills_list
+                    )
+                    st.session_state.answer_analysis[question_index] = analysis
+                    
+                    # Generate follow-up question
+                    skill_focus = None
+                    if skills_list and question_index < len(skills_list):
+                        skill_focus = skills_list[min(question_index, len(skills_list)-1)]
+                    
+                    follow_up = self.ai_enhancer.generate_follow_up_question(
+                        answer_text,
+                        st.session_state.interview_questions[question_index],
+                        skill_focus
+                    )
+                    st.session_state.follow_up_questions[question_index] = follow_up
             
             # Update interview data
             if question_index < len(st.session_state.interview_data['answers']):
@@ -410,14 +489,30 @@ EXPERIENCE:
             </div>
             """, unsafe_allow_html=True)
             
-            # Current question in styled box
+            # Display question - show AI enhanced version if available
             current_question = st.session_state.interview_questions[current_index]
-            st.markdown(f"""
-            <div class="question-box">
-                <strong style='color: #4FC3F7;'>💡 Question:</strong><br>
-                {current_question}
-            </div>
-            """, unsafe_allow_html=True)
+            
+            if (st.session_state.ai_enabled and 
+                st.session_state.ai_enhanced_questions and 
+                current_index < len(st.session_state.ai_enhanced_questions) and
+                st.session_state.ai_enhanced_questions[current_index].get('success')):
+                
+                enhanced_data = st.session_state.ai_enhanced_questions[current_index]
+                st.markdown(f"""
+                <div class="ai-enhanced-box">
+                    <strong style='color: #FFD700;'>🤖 AI-Enhanced Question:</strong><br>
+                    {enhanced_data['improved_question']}
+                    <br><br>
+                    <small><em>💡 {enhanced_data['explanation']}</em></small>
+                </div>
+                """, unsafe_allow_html=True)
+            else:
+                st.markdown(f"""
+                <div class="question-box">
+                    <strong style='color: #4FC3F7;'>💡 Question:</strong><br>
+                    {current_question}
+                </div>
+                """, unsafe_allow_html=True)
             
             # Answer input area
             st.markdown("**📝 Your Answer:**")
@@ -433,6 +528,22 @@ EXPERIENCE:
             # Update answer in session state as user types
             if answer != st.session_state.candidate_answers[current_index]:
                 st.session_state.candidate_answers[current_index] = answer
+            
+            # Display AI analysis of previous answer if available
+            if (current_index > 0 and 
+                st.session_state.answer_analysis and 
+                st.session_state.answer_analysis[current_index-1]):
+                
+                analysis = st.session_state.answer_analysis[current_index-1]
+                if analysis.get('success'):
+                    st.markdown(f"""
+                    <div class="ai-analysis-box">
+                        <strong>🤖 AI Analysis of Previous Answer:</strong><br>
+                        <strong>Quality Score:</strong> {analysis.get('quality_score', 'N/A')}/10<br>
+                        <strong>Strengths:</strong> {', '.join(analysis.get('strengths', []))}<br>
+                        <strong>Skills Demonstrated:</strong> {', '.join(analysis.get('skills_demonstrated', []))}
+                    </div>
+                    """, unsafe_allow_html=True)
             
             # Navigation and action buttons
             col1, col2, col3, col4 = st.columns([1, 1, 1, 1])
@@ -520,6 +631,16 @@ EXPERIENCE:
             </div>
             """, unsafe_allow_html=True)
         
+        # AI Enhancement Status
+        if st.session_state.ai_enabled:
+            ai_status = "🟢 Active" if self.ai_enhancer.available else "🔴 Unavailable"
+            st.markdown(f"""
+            <div class="ai-analysis-box">
+                <strong>🤖 AI Enhancement:</strong> {ai_status}
+                {"" if self.ai_enhancer.available else " - Install Ollama to enable AI features"}
+            </div>
+            """, unsafe_allow_html=True)
+        
         # Visualizations Section
         st.markdown("### 📊 Visual Analytics")
         
@@ -538,7 +659,7 @@ EXPERIENCE:
         # Detailed Breakdown Section
         st.markdown("### 📋 Detailed Analysis")
         
-        tab1, tab2, tab3 = st.tabs(["🔍 Skills Analysis", "⚠️ Bias Alerts", "💡 Recommendations"])
+        tab1, tab2, tab3, tab4 = st.tabs(["🔍 Skills Analysis", "⚠️ Bias Alerts", "🤖 AI Insights", "💡 Recommendations"])
         
         with tab1:
             self.display_skills_analysis()
@@ -547,6 +668,9 @@ EXPERIENCE:
             self.display_bias_analysis()
         
         with tab3:
+            self.display_ai_insights()
+        
+        with tab4:
             self.display_recommendations()
         
         # Export Functionality
@@ -568,6 +692,72 @@ EXPERIENCE:
             if st.button("🔄 Start New Interview", type="primary", use_container_width=True):
                 self.reset_interview()
                 st.rerun()
+
+    def display_ai_insights(self):
+        """Display AI-powered insights and analysis"""
+        st.markdown("#### 🤖 AI-Powered Insights")
+        
+        if not st.session_state.ai_enabled or not self.ai_enhancer.available:
+            st.info("Enable AI Enhancement in the sidebar to get AI-powered insights!")
+            return
+        
+        if not st.session_state.answer_analysis or all(analysis is None for analysis in st.session_state.answer_analysis):
+            st.info("Complete the interview to see AI analysis of your answers.")
+            return
+        
+        # Overall AI Analysis
+        total_answers = len([a for a in st.session_state.candidate_answers if a.strip()])
+        if total_answers > 0:
+            quality_scores = []
+            for analysis in st.session_state.answer_analysis:
+                if analysis and analysis.get('quality_score'):
+                    quality_scores.append(analysis['quality_score'])
+            
+            if quality_scores:
+                avg_quality = sum(quality_scores) / len(quality_scores)
+                st.metric("📊 Average Answer Quality Score", f"{avg_quality:.1f}/10")
+                
+                if avg_quality >= 8:
+                    st.success("🎉 Excellent! Your answers demonstrate strong experience and clarity.")
+                elif avg_quality >= 6:
+                    st.info("👍 Good! Your answers are comprehensive and relevant.")
+                else:
+                    st.warning("💡 Consider providing more specific examples and details in your answers.")
+        
+        # Detailed answer analysis
+        st.markdown("#### 📝 Answer-by-Answer Analysis")
+        for i, (question, answer, analysis) in enumerate(zip(
+            st.session_state.interview_questions,
+            st.session_state.candidate_answers,
+            st.session_state.answer_analysis
+        )):
+            if answer.strip() and analysis and analysis.get('success'):
+                with st.expander(f"Question {i+1} Analysis", expanded=False):
+                    col1, col2 = st.columns([2, 1])
+                    
+                    with col1:
+                        st.markdown("**Answer:**")
+                        st.info(answer)
+                    
+                    with col2:
+                        st.metric("Quality Score", f"{analysis.get('quality_score', 'N/A')}/10")
+                        st.metric("Relevance", f"{analysis.get('relevance_score', 'N/A')}/10")
+                    
+                    st.markdown("**Strengths:**")
+                    for strength in analysis.get('strengths', []):
+                        st.write(f"✅ {strength}")
+                    
+                    st.markdown("**Areas for Improvement:**")
+                    for improvement in analysis.get('improvements', []):
+                        st.write(f"📝 {improvement}")
+                    
+                    st.markdown("**Skills Demonstrated:**")
+                    skills = analysis.get('skills_demonstrated', [])
+                    if skills:
+                        for skill in skills:
+                            st.markdown(f'<span class="skill-chip">🎯 {skill}</span>', unsafe_allow_html=True)
+                    else:
+                        st.write("No specific skills identified in this answer.")
 
     def calculate_skills_match_score(self):
         """Calculate how well candidate skills match typical job requirements"""
@@ -824,6 +1014,22 @@ EXPERIENCE:
             report_lines.append("  • No biases detected - Excellent!")
         report_lines.append("")
         
+        # AI Enhancement Status
+        report_lines.append("AI ENHANCEMENT:")
+        if st.session_state.ai_enabled and self.ai_enhancer.available:
+            report_lines.append("  • AI Enhancement: Active")
+            # Add AI insights summary
+            quality_scores = []
+            for analysis in st.session_state.answer_analysis:
+                if analysis and analysis.get('quality_score'):
+                    quality_scores.append(analysis['quality_score'])
+            if quality_scores:
+                avg_quality = sum(quality_scores) / len(quality_scores)
+                report_lines.append(f"  • Average Answer Quality: {avg_quality:.1f}/10")
+        else:
+            report_lines.append("  • AI Enhancement: Not Active")
+        report_lines.append("")
+        
         # Recommendations
         report_lines.append("RECOMMENDATIONS:")
         report_lines.append("  1. Focus on job-relevant qualifications")
@@ -851,16 +1057,28 @@ EXPERIENCE:
         with st.sidebar:
             st.markdown("### 🔧 Session Controls")
             
-            if st.session_state.interview_started and not st.session_state.interview_completed:
-                st.info("🎤 Interview in Progress")
-                current_index = st.session_state.current_question_index
-                total_questions = len(st.session_state.interview_questions)
-                st.progress(current_index / total_questions)
-                st.write(f"Progress: {current_index + 1}/{total_questions}")
+            # AI Enhancement Toggle
+            st.markdown("### 🤖 AI Enhancement")
+            ai_enabled = st.toggle("Enable AI Features", 
+                                 value=st.session_state.ai_enabled,
+                                 help="Use Ollama for enhanced question generation and answer analysis")
             
-            if st.button("🔄 Reset Entire Session", use_container_width=True):
-                self.reset_interview()
-                st.rerun()
+            if ai_enabled != st.session_state.ai_enabled:
+                st.session_state.ai_enabled = ai_enabled
+                if ai_enabled and not self.ai_enhancer.available:
+                    st.warning("""
+                    **Ollama not detected!** 
+                    
+                    To enable AI features:
+                    1. Install Ollama from https://ollama.ai
+                    2. Run: `ollama pull llama2:7b`
+                    3. Restart this application
+                    """)
+            
+            if st.session_state.ai_enabled and self.ai_enhancer.available:
+                st.success("🤖 AI Enhancement Active")
+            elif st.session_state.ai_enabled:
+                st.error("❌ Ollama not available")
             
             st.markdown("---")
             st.markdown("### 📊 Current Status")
@@ -878,6 +1096,12 @@ EXPERIENCE:
             
             if st.session_state.interview_completed:
                 st.success("✅ Interview Completed")
+            
+            st.markdown("---")
+            
+            if st.button("🔄 Reset Entire Session", use_container_width=True):
+                self.reset_interview()
+                st.rerun()
             
             st.markdown("---")
             st.markdown("### 💡 Interview Tips")
@@ -924,10 +1148,12 @@ EXPERIENCE:
         """Display detailed question-by-question review in separate tab"""
         st.markdown('<div class="section-header">📋 Detailed Question Review</div>', unsafe_allow_html=True)
         
-        for i, (question, answer, bias_report) in enumerate(zip(
+        for i, (question, answer, bias_report, analysis, follow_up) in enumerate(zip(
             st.session_state.interview_questions,
             st.session_state.candidate_answers,
-            st.session_state.bias_reports
+            st.session_state.bias_reports,
+            st.session_state.answer_analysis,
+            st.session_state.follow_up_questions
         )):
             with st.expander(f"Question {i+1}: {question[:80]}...", expanded=False):
                 col1, col2 = st.columns([2, 1])
@@ -935,6 +1161,17 @@ EXPERIENCE:
                 with col1:
                     st.markdown("**Your Answer:**")
                     st.info(answer if answer else "No answer provided")
+                    
+                    # Show AI analysis if available
+                    if analysis and analysis.get('success'):
+                        st.markdown("**🤖 AI Analysis:**")
+                        st.write(f"**Quality Score:** {analysis.get('quality_score', 'N/A')}/10")
+                        st.write(f"**Relevance:** {analysis.get('relevance_score', 'N/A')}/10")
+                        
+                        if analysis.get('strengths'):
+                            st.write("**Strengths:**")
+                            for strength in analysis['strengths']:
+                                st.write(f"✅ {strength}")
                 
                 with col2:
                     st.markdown("**Bias Analysis:**")
@@ -954,6 +1191,12 @@ EXPERIENCE:
                             st.success(f"🟩 No Bias Detected")
                     else:
                         st.info("No bias analysis available")
+                    
+                    # Show follow-up question if available
+                    if (follow_up and follow_up.get('success') and 
+                        st.session_state.ai_enabled and self.ai_enhancer.available):
+                        st.markdown("**🤖 Suggested Follow-up:**")
+                        st.info(follow_up.get('follow_up_question', ''))
 
 # Run the application
 if __name__ == "__main__":

@@ -4,19 +4,70 @@ import sys
 from datetime import datetime
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
+import json
 
 # Add the utils directory to Python path
 sys.path.append(os.path.join(os.path.dirname(__file__), 'utils'))
 
-# Import from your utils package structure
-from utils import ResumeParser, QuestionGenerator, AIEnhancer
-from utils.bias_detector import detect_bias_in_text, analyze_question_fairness, generate_bias_report
+# Import from your utils package structure - FIXED IMPORTS
+try:
+    from utils.resume_parser import ResumeParser
+    from utils.question_gen import QuestionGenerator  # FIXED: question_gen instead of question_generator
+    from utils.ai_enhancer import AIEnhancer
+    from utils.bias_detector import detect_bias_in_text, analyze_question_fairness, generate_bias_report
+    from utils.resume_parser import build_skills_graph, get_skills_by_category, calculate_skill_metrics
+    from utils.visualizer import create_skills_network, plot_skill_categories, create_category_barchart, create_confidence_heatmap
+except ImportError as e:
+    st.error(f"Some modules not found: {e}")
+    
+    # Fallback implementations
+    class ResumeParser:
+        def extract_skills(self, text):
+            return [("python", "technical", 0.8), ("communication", "soft", 0.7)]
+        def parse_experience(self, text):
+            return "Mid"
+    
+    class QuestionGenerator:
+        def generate_questions(self, skills, experience):
+            return [
+                "Tell me about your experience with Python",
+                "Describe a challenging project you worked on", 
+                "How do you handle teamwork situations?",
+                "What are your strengths in communication?",
+                "Where do you see yourself in 5 years?"
+            ]
+    
+    class AIEnhancer:
+        def __init__(self): self.available = False
+        def improve_question(self, *args): return {"success": False}
+        def analyze_answer_depth(self, *args): return {"success": False}
+        def generate_follow_up_question(self, *args): return {"success": False}
+    
+    def detect_bias_in_text(text): 
+        return {"bias_types": [], "severity": "Low"}
+    def build_skills_graph(*args): return {}
+    def get_skills_by_category(*args): return {}
+    def calculate_skill_metrics(*args): return {}
+    def create_skills_network(*args): return go.Figure()
+    def plot_skill_categories(*args): return go.Figure()
+    def create_category_barchart(*args): return go.Figure()
+    def create_confidence_heatmap(*args): return go.Figure()
 
 class FairAIHireApp:
     def __init__(self):
-        self.parser = ResumeParser()
-        self.question_gen = QuestionGenerator()
-        self.ai_enhancer = AIEnhancer()
+        try:
+            self.parser = ResumeParser()
+            self.question_gen = QuestionGenerator()
+            self.ai_enhancer = AIEnhancer()
+        except Exception as e:
+            st.error(f"Error initializing: {e}")
+            self.parser = ResumeParser()
+            self.question_gen = QuestionGenerator()
+            self.ai_enhancer = AIEnhancer()
+        
         self.setup_page()
     
     def setup_page(self):
@@ -30,7 +81,6 @@ class FairAIHireApp:
         # Enhanced CSS for dark/light theme compatibility
         st.markdown("""
         <style>
-        /* Main container styling */
         .main-header {
             font-size: 2.5rem;
             color: #1f77b4;
@@ -38,8 +88,6 @@ class FairAIHireApp:
             margin-bottom: 2rem;
             font-weight: bold;
         }
-        
-        /* Skill chips with better visibility */
         .skill-chip {
             background-color: #2e86ab;
             color: white;
@@ -51,16 +99,12 @@ class FairAIHireApp:
             font-weight: 500;
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
         }
-        
         .skill-chip-technical {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
         }
-        
         .skill-chip-soft {
             background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
         }
-        
-        /* Question box styling */
         .question-box {
             background-color: #1e1e1e;
             color: white;
@@ -70,8 +114,6 @@ class FairAIHireApp:
             margin: 1rem 0;
             box-shadow: 0 4px 6px rgba(0,0,0,0.1);
         }
-        
-        /* AI Enhanced question styling */
         .ai-enhanced-box {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
@@ -81,8 +123,6 @@ class FairAIHireApp:
             margin: 1rem 0;
             box-shadow: 0 4px 6px rgba(0,0,0,0.1);
         }
-        
-        /* Section headers */
         .section-header {
             color: #1f77b4;
             font-size: 1.8rem;
@@ -90,71 +130,11 @@ class FairAIHireApp:
             border-bottom: 2px solid #1f77b4;
             padding-bottom: 0.5rem;
         }
-        
-        /* Progress bar styling */
         .progress-text {
             color: white;
             font-weight: bold;
             text-align: center;
         }
-        
-        /* Button container */
-        .button-container {
-            display: flex;
-            gap: 1rem;
-            margin: 1rem 0;
-        }
-        
-        /* Answer input area */
-        .answer-input {
-            background-color: #2b2b2b;
-            color: white;
-            border: 1px solid #444;
-        }
-        
-        /* Success and error messages */
-        .stSuccess {
-            color: white;
-            background-color: #28a745;
-        }
-        
-        .stError {
-            color: white;
-            background-color: #dc3545;
-        }
-        
-        /* Bias indicators */
-        .bias-low { color: #28a745; font-weight: bold; }
-        .bias-medium { color: #ffc107; font-weight: bold; }
-        .bias-high { color: #dc3545; font-weight: bold; }
-        
-        /* Summary cards */
-        .summary-card {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            padding: 1.5rem;
-            border-radius: 10px;
-            color: white;
-            margin: 0.5rem 0;
-        }
-        
-        /* Make text areas more visible */
-        .stTextArea textarea {
-            background-color: #2b2b2b !important;
-            color: white !important;
-            border: 1px solid #555 !important;
-        }
-        
-        /* Ensure all text is visible */
-        .stMarkdown, .stText, .stSubheader, .stHeader {
-            color: white !important;
-        }
-        
-        /* Fix for streamlit default text colors */
-        p, div, span, h1, h2, h3, h4, h5, h6 {
-            color: white !important;
-        }
-        
-        /* Custom container for better contrast */
         .custom-container {
             background-color: #1e1e1e;
             padding: 2rem;
@@ -162,22 +142,13 @@ class FairAIHireApp:
             margin: 1rem 0;
             border: 1px solid #333;
         }
-        
-        /* Dashboard specific styles */
-        .metric-card {
+        .summary-card {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             padding: 1.5rem;
             border-radius: 10px;
             color: white;
-            text-align: center;
             margin: 0.5rem 0;
         }
-        
-        .heatmap-low { background-color: #28a745; color: white; padding: 0.5rem; border-radius: 5px; }
-        .heatmap-medium { background-color: #ffc107; color: black; padding: 0.5rem; border-radius: 5px; }
-        .heatmap-high { background-color: #dc3545; color: white; padding: 0.5rem; border-radius: 5px; }
-        
-        /* AI Analysis styling */
         .ai-analysis-box {
             background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);
             color: white;
@@ -185,90 +156,65 @@ class FairAIHireApp:
             border-radius: 8px;
             margin: 0.5rem 0;
         }
-        
-        .ai-warning-box {
-            background: linear-gradient(135deg, #ff9800 0%, #f57c00 100%);
-            color: white;
-            padding: 1rem;
-            border-radius: 8px;
-            margin: 0.5rem 0;
+        .stTextArea textarea {
+            background-color: #2b2b2b !important;
+            color: white !important;
+            border: 1px solid #555 !important;
+        }
+        p, div, span, h1, h2, h3, h4, h5, h6 {
+            color: white !important;
         }
         </style>
         """, unsafe_allow_html=True)
     
     def initialize_session_state(self):
         """Initialize all session state variables"""
-        # Session state variables for interview management
-        if 'current_question_index' not in st.session_state:
-            st.session_state.current_question_index = 0
-        if 'candidate_skills' not in st.session_state:
-            st.session_state.candidate_skills = []
-        if 'candidate_experience' not in st.session_state:
-            st.session_state.candidate_experience = "Unknown"
-        if 'interview_questions' not in st.session_state:
-            st.session_state.interview_questions = []
-        if 'candidate_answers' not in st.session_state:
-            st.session_state.candidate_answers = []
-        if 'bias_reports' not in st.session_state:
-            st.session_state.bias_reports = []
-        if 'interview_started' not in st.session_state:
-            st.session_state.interview_started = False
-        if 'interview_completed' not in st.session_state:
-            st.session_state.interview_completed = False
-        if 'resume_analyzed' not in st.session_state:
-            st.session_state.resume_analyzed = False
-        if 'interview_data' not in st.session_state:
-            st.session_state.interview_data = {
-                'questions': [],
-                'answers': [],
-                'bias_analysis': [],
-                'start_time': None,
-                'end_time': None
+        defaults = {
+            'current_question_index': 0,
+            'candidate_skills': [],
+            'candidate_experience': "Unknown",
+            'interview_questions': [],
+            'candidate_answers': [],
+            'bias_reports': [],
+            'interview_started': False,
+            'interview_completed': False,
+            'resume_analyzed': False,
+            'ai_enabled': False,
+            'ai_enhanced_questions': [],
+            'answer_analysis': [],
+            'follow_up_questions': [],
+            'skills_graph': {},
+            'skills_data': {},
+            'interview_data': {
+                'questions': [], 'answers': [], 'bias_analysis': [],
+                'start_time': None, 'end_time': None
             }
-        # AI Enhancement session state
-        if 'ai_enabled' not in st.session_state:
-            st.session_state.ai_enabled = False
-        if 'ai_enhanced_questions' not in st.session_state:
-            st.session_state.ai_enhanced_questions = []
-        if 'answer_analysis' not in st.session_state:
-            st.session_state.answer_analysis = []
-        if 'follow_up_questions' not in st.session_state:
-            st.session_state.follow_up_questions = []
+        }
+        
+        for key, value in defaults.items():
+            if key not in st.session_state:
+                st.session_state[key] = value
     
     def reset_interview(self):
         """Reset the interview session"""
-        st.session_state.current_question_index = 0
-        st.session_state.candidate_skills = []
-        st.session_state.candidate_experience = "Unknown"
-        st.session_state.interview_questions = []
-        st.session_state.candidate_answers = []
-        st.session_state.bias_reports = []
-        st.session_state.interview_started = False
-        st.session_state.interview_completed = False
-        st.session_state.resume_analyzed = False
-        st.session_state.interview_data = {
-            'questions': [],
-            'answers': [],
-            'bias_analysis': [],
-            'start_time': None,
-            'end_time': None
-        }
-        # Reset AI enhancement data
-        st.session_state.ai_enhanced_questions = []
-        st.session_state.answer_analysis = []
-        st.session_state.follow_up_questions = []
+        for key in list(st.session_state.keys()):
+            if key != 'ai_enabled':  # Keep AI setting
+                del st.session_state[key]
+        self.initialize_session_state()
     
     def analyze_resume(self, resume_text):
         """Analyze resume and extract skills/experience"""
         try:
-            # Extract skills and experience using the parser class
             skills_result = self.parser.extract_skills(resume_text)
             experience_level = self.parser.parse_experience(resume_text)
             
-            # Store in session state
             st.session_state.candidate_skills = skills_result
             st.session_state.candidate_experience = experience_level
             st.session_state.resume_analyzed = True
+            
+            # Build skills graph for visualization
+            st.session_state.skills_graph = build_skills_graph(resume_text)
+            st.session_state.skills_data = get_skills_by_category(st.session_state.skills_graph)
             
             return True
         except Exception as e:
@@ -312,7 +258,7 @@ class FairAIHireApp:
         if answer_text.strip():
             st.session_state.candidate_answers[question_index] = answer_text
             
-            # Run bias detection on the answer
+            # Run bias detection
             bias_result = detect_bias_in_text(answer_text)
             st.session_state.bias_reports[question_index] = bias_result
             
@@ -327,7 +273,7 @@ class FairAIHireApp:
                     )
                     st.session_state.answer_analysis[question_index] = analysis
                     
-                    # Generate follow-up question
+                    # Generate follow-up question - FIXED SYNTAX ERROR
                     skill_focus = None
                     if skills_list and question_index < len(skills_list):
                         skill_focus = skills_list[min(question_index, len(skills_list)-1)]
@@ -370,8 +316,7 @@ class FairAIHireApp:
         st.markdown("""
         <div style='text-align: center; color: #ddd; margin-bottom: 2rem;'>
         Welcome to FairAI Hire! Upload your resume below to start a personalized, 
-        unbiased technical interview. Our AI will analyze your skills and generate 
-        relevant questions based on your experience level.
+        unbiased technical interview.
         </div>
         """, unsafe_allow_html=True)
     
@@ -379,9 +324,7 @@ class FairAIHireApp:
         """Display resume analysis section"""
         st.markdown('<div class="section-header">📄 Resume Analysis</div>', unsafe_allow_html=True)
         
-        # Custom container for better visibility
         st.markdown('<div class="custom-container">', unsafe_allow_html=True)
-        
         st.markdown("**Paste your resume text below:**")
         
         resume_text = st.text_area(
@@ -390,17 +333,9 @@ class FairAIHireApp:
             placeholder="""Paste your resume content here...
 
 Example:
-John Doe
-Software Developer with 3 years of experience in Python and JavaScript.
-
-SKILLS:
-• Python, JavaScript, React, Node.js, SQL
-• Teamwork, Communication, Problem Solving
-
-EXPERIENCE:
-• Developed web applications using Python and React
-• Led a team of 3 developers
-• Strong communication and collaboration skills""",
+John Doe - Software Developer
+3 years of experience in Python and JavaScript
+Skills: Python, React, SQL, Teamwork, Communication""",
             key="resume_input",
             label_visibility="collapsed"
         )
@@ -412,9 +347,9 @@ EXPERIENCE:
         with col1:
             if st.button("🚀 Analyze Resume & Start Interview", type="primary", use_container_width=True):
                 if resume_text.strip():
-                    with st.spinner("🔍 Analyzing your resume and generating personalized questions..."):
+                    with st.spinner("🔍 Analyzing your resume..."):
                         if self.analyze_resume(resume_text) and self.generate_interview_questions():
-                            st.success("✅ Resume analyzed successfully! Starting your personalized interview...")
+                            st.success("✅ Resume analyzed successfully!")
                             st.rerun()
                 else:
                     st.error("❌ Please paste your resume text to continue.")
@@ -429,7 +364,6 @@ EXPERIENCE:
         if st.session_state.candidate_skills:
             st.markdown('<div class="section-header">🎯 Discovered Skills & Experience</div>', unsafe_allow_html=True)
             
-            # Custom container for skills
             st.markdown('<div class="custom-container">', unsafe_allow_html=True)
             
             col1, col2 = st.columns(2)
@@ -454,7 +388,7 @@ EXPERIENCE:
                 else:
                     st.markdown("*No soft skills detected*")
             
-            # Experience level with emoji
+            # Experience level
             level_emojis = {'Entry': '🟢', 'Mid': '🟡', 'Senior': '🔴'}
             emoji = level_emojis.get(st.session_state.candidate_experience, '⚪')
             
@@ -466,6 +400,103 @@ EXPERIENCE:
             """, unsafe_allow_html=True)
             
             st.markdown('</div>', unsafe_allow_html=True)
+
+    def skills_visualization_section(self):
+        """Display skills graph visualization"""
+        st.markdown('<div class="section-header">🕸️ Skills Graph Visualization</div>', unsafe_allow_html=True)
+        
+        if not st.session_state.skills_graph:
+            st.info("👆 Analyze a resume first to see skills visualization!")
+            return
+        
+        # Create tabs for different visualizations
+        viz_tab1, viz_tab2, viz_tab3 = st.tabs(["Network Graph", "Category Analysis", "Confidence Heatmap"])
+        
+        with viz_tab1:
+            st.markdown("### 🕸️ Skills Relationship Network")
+            st.markdown("""
+            **Understanding the Network:**
+            - 🔴 **Nodes** = Your skills (size = confidence level)
+            - 🔵 **Lines** = Skills that work well together  
+            - 🎨 **Colors** = Different skill categories
+            """)
+            
+            # Create network graph
+            fig_network = create_skills_network(st.session_state.skills_graph)
+            st.plotly_chart(fig_network, use_container_width=True, key="skills_network_graph")
+            
+            # Show skills list with details
+            st.markdown("### 📋 Detected Skills Details")
+            skills_list = []
+            for skill_name, skill_node in st.session_state.skills_graph.items():
+                skills_list.append({
+                    "Skill": skill_name,
+                    "Category": skill_node.category,
+                    "Confidence": f"{skill_node.confidence:.2f}",
+                    "Frequency": skill_node.frequency,
+                    "Related Skills": len(skill_node.related_skills)
+                })
+            
+            df_skills = pd.DataFrame(skills_list)
+            st.dataframe(df_skills, use_container_width=True, key="skills_dataframe")
+            
+        with viz_tab2:
+            st.markdown("### 📊 Skills Category Analysis")
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                # Category distribution
+                st.markdown("#### Skills by Category")
+                fig_barchart = create_category_barchart(st.session_state.skills_data)
+                st.plotly_chart(fig_barchart, use_container_width=True, key="category_barchart")
+            
+            with col2:
+                # Radar chart
+                st.markdown("#### Skills Radar")
+                fig_radar = plot_skill_categories(st.session_state.skills_data)
+                st.plotly_chart(fig_radar, use_container_width=True, key="skills_radar")
+            
+        with viz_tab3:
+            st.markdown("### 🔥 Skill Confidence Heatmap")
+            fig_heatmap = create_confidence_heatmap(st.session_state.skills_graph)
+            st.plotly_chart(fig_heatmap, use_container_width=True, key="confidence_heatmap")
+            
+            # Skills metrics
+            metrics = calculate_skill_metrics(st.session_state.skills_graph)
+            st.markdown("### 📈 Skills Metrics")
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.metric("Total Skills", metrics['total_skills'])
+            with col2:
+                st.metric("Avg Confidence", f"{metrics['avg_confidence']:.2f}")
+            with col3:
+                st.metric("Relationships", metrics['total_relationships'])
+            with col4:
+                st.metric("Connectivity", f"{metrics['connectivity_score']:.2f}")
+            
+            # Export functionality
+            st.markdown("### 💾 Export Skills Data")
+            if st.button("Export Skills Data as JSON", key="export_skills"):
+                skills_export = {
+                    "skills_graph": {
+                        name: {
+                            "skill": node.skill,
+                            "category": node.category,
+                            "confidence": node.confidence,
+                            "frequency": node.frequency,
+                            "related_skills": node.related_skills
+                        } for name, node in st.session_state.skills_graph.items()
+                    },
+                    "metrics": metrics
+                }
+                st.download_button(
+                    label="Download JSON",
+                    data=json.dumps(skills_export, indent=2),
+                    file_name="skills_analysis.json",
+                    mime="application/json",
+                    key="download_skills_json"
+                )
     
     def interview_section(self):
         """Display interview questions and answers with navigation"""
@@ -489,7 +520,7 @@ EXPERIENCE:
             </div>
             """, unsafe_allow_html=True)
             
-            # Display question - show AI enhanced version if available
+            # Display question
             current_question = st.session_state.interview_questions[current_index]
             
             if (st.session_state.ai_enabled and 
@@ -520,7 +551,7 @@ EXPERIENCE:
                 " ",
                 value=st.session_state.candidate_answers[current_index],
                 height=180,
-                placeholder="Share your experience and thoughts here...\n\nTip: Be specific about your projects, challenges, and solutions.",
+                placeholder="Share your experience and thoughts here...",
                 key=f"answer_{current_index}",
                 label_visibility="collapsed"
             )
@@ -550,12 +581,12 @@ EXPERIENCE:
             
             with col1:
                 if current_index > 0:
-                    if st.button("⬅️ Previous", use_container_width=True):
+                    if st.button("⬅️ Previous", use_container_width=True, key=f"prev_{current_index}"):
                         self.navigate_questions("previous")
                         st.rerun()
             
             with col2:
-                if st.button("💾 Save Answer", use_container_width=True):
+                if st.button("💾 Save Answer", use_container_width=True, key=f"save_{current_index}"):
                     if self.submit_answer(answer, current_index):
                         st.success("✅ Answer saved!")
                     else:
@@ -563,12 +594,12 @@ EXPERIENCE:
             
             with col3:
                 if current_index < total_questions - 1:
-                    if st.button("Next ➡️", type="primary", use_container_width=True):
+                    if st.button("Next ➡️", type="primary", use_container_width=True, key=f"next_{current_index}"):
                         self.submit_answer(answer, current_index)
                         self.navigate_questions("next")
                         st.rerun()
                 else:
-                    if st.button("🏁 Complete Interview", type="primary", use_container_width=True):
+                    if st.button("🏁 Complete Interview", type="primary", use_container_width=True, key="complete_interview"):
                         if self.submit_answer(answer, current_index):
                             self.complete_interview()
                             st.balloons()
@@ -576,7 +607,7 @@ EXPERIENCE:
                             st.rerun()
             
             with col4:
-                if st.button("🔄 Restart", use_container_width=True):
+                if st.button("🔄 Restart", use_container_width=True, key=f"restart_{current_index}"):
                     self.reset_interview()
                     st.rerun()
 
@@ -678,18 +709,19 @@ EXPERIENCE:
         col1, col2 = st.columns(2)
         
         with col1:
-            if st.button("📄 Generate Fairness Report", use_container_width=True):
+            if st.button("📄 Generate Fairness Report", use_container_width=True, key="generate_report"):
                 report = self.generate_fairness_report()
                 st.download_button(
                     label="📥 Download Report",
                     data=report,
                     file_name=f"fairness_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
                     mime="text/plain",
-                    use_container_width=True
+                    use_container_width=True,
+                    key="download_report"
                 )
         
         with col2:
-            if st.button("🔄 Start New Interview", type="primary", use_container_width=True):
+            if st.button("🔄 Start New Interview", type="primary", use_container_width=True, key="new_interview"):
                 self.reset_interview()
                 st.rerun()
 
@@ -764,14 +796,12 @@ EXPERIENCE:
         if not st.session_state.candidate_skills:
             return 0
         
-        # Define target skills for a software developer role
         target_technical_skills = ['python', 'java', 'javascript', 'sql', 'html', 'css', 'react', 'node.js']
         target_soft_skills = ['communication', 'teamwork', 'leadership', 'problem solving', 'creativity']
         
         candidate_tech_skills = [skill for skill, category, _ in st.session_state.candidate_skills if category == 'technical']
         candidate_soft_skills = [skill for skill, category, _ in st.session_state.candidate_skills if category == 'soft']
         
-        # Calculate match percentages
         tech_match = len([skill for skill in candidate_tech_skills if skill in target_technical_skills])
         soft_match = len([skill for skill in candidate_soft_skills if skill in target_soft_skills])
         
@@ -816,11 +846,9 @@ EXPERIENCE:
         bias_alert_level, _ = self.calculate_bias_alert_level()
         completeness = self.calculate_interview_completeness()
         
-        # Base score based on bias level
         bias_scores = {"Low": 9, "Medium": 6, "High": 3}
         base_score = bias_scores.get(bias_alert_level, 5)
         
-        # Adjust based on completeness
         completeness_factor = completeness / 100.0
         
         return min(10, int(base_score + (completeness_factor * 2)))
@@ -842,7 +870,6 @@ EXPERIENCE:
         
         bars = ax.bar(categories, counts, color=colors, alpha=0.8)
         
-        # Add value labels on bars
         for bar, count in zip(bars, counts):
             height = bar.get_height()
             ax.text(bar.get_x() + bar.get_width()/2., height + 0.1,
@@ -860,7 +887,6 @@ EXPERIENCE:
             st.info("No bias data available")
             return
         
-        # Count bias types
         bias_types = {}
         for report in st.session_state.bias_reports:
             if report and report.get('bias_types'):
@@ -876,7 +902,6 @@ EXPERIENCE:
         types = list(bias_types.keys())
         counts = list(bias_types.values())
         
-        # Create heatmap-like bars
         colors = ['#dc3545' if count > 1 else '#ffc107' for count in counts]
         bars = ax.bar(types, counts, color=colors, alpha=0.8)
         
@@ -966,7 +991,6 @@ EXPERIENCE:
         for recommendation in recommendations:
             st.write(recommendation)
         
-        # Specific recommendations based on analysis
         bias_alert_level, _ = self.calculate_bias_alert_level()
         
         if bias_alert_level == "High":
@@ -1014,22 +1038,6 @@ EXPERIENCE:
             report_lines.append("  • No biases detected - Excellent!")
         report_lines.append("")
         
-        # AI Enhancement Status
-        report_lines.append("AI ENHANCEMENT:")
-        if st.session_state.ai_enabled and self.ai_enhancer.available:
-            report_lines.append("  • AI Enhancement: Active")
-            # Add AI insights summary
-            quality_scores = []
-            for analysis in st.session_state.answer_analysis:
-                if analysis and analysis.get('quality_score'):
-                    quality_scores.append(analysis['quality_score'])
-            if quality_scores:
-                avg_quality = sum(quality_scores) / len(quality_scores)
-                report_lines.append(f"  • Average Answer Quality: {avg_quality:.1f}/10")
-        else:
-            report_lines.append("  • AI Enhancement: Not Active")
-        report_lines.append("")
-        
         # Recommendations
         report_lines.append("RECOMMENDATIONS:")
         report_lines.append("  1. Focus on job-relevant qualifications")
@@ -1043,14 +1051,6 @@ EXPERIENCE:
         report_lines.append("=" * 60)
         
         return "\n".join(report_lines)
-    
-    def interview_summary_section(self):
-        """Display comprehensive interview summary - NOW USING FAIRNESS DASHBOARD"""
-        if not st.session_state.interview_completed:
-            return
-        
-        # Use the new fairness dashboard instead of old summary
-        self.display_fairness_dashboard()
     
     def sidebar_controls(self):
         """Display sidebar controls and information"""
@@ -1066,14 +1066,7 @@ EXPERIENCE:
             if ai_enabled != st.session_state.ai_enabled:
                 st.session_state.ai_enabled = ai_enabled
                 if ai_enabled and not self.ai_enhancer.available:
-                    st.warning("""
-                    **Ollama not detected!** 
-                    
-                    To enable AI features:
-                    1. Install Ollama from https://ollama.ai
-                    2. Run: `ollama pull llama2:7b`
-                    3. Restart this application
-                    """)
+                    st.warning("Ollama not detected! Install from https://ollama.ai")
             
             if st.session_state.ai_enabled and self.ai_enhancer.available:
                 st.success("🤖 AI Enhancement Active")
@@ -1099,7 +1092,7 @@ EXPERIENCE:
             
             st.markdown("---")
             
-            if st.button("🔄 Reset Entire Session", use_container_width=True):
+            if st.button("🔄 Reset Entire Session", use_container_width=True, key="sidebar_reset"):
                 self.reset_interview()
                 st.rerun()
             
@@ -1120,9 +1113,11 @@ EXPERIENCE:
         
         # Create tabs for different sections
         if st.session_state.interview_completed:
-            tab1, tab2 = st.tabs(["📊 Fairness Dashboard", "🎤 Interview Review"])
+            tab1, tab2, tab3 = st.tabs(["📊 Fairness Dashboard", "🕸️ Skills Visualization", "🎤 Interview Review"])
+        elif st.session_state.resume_analyzed:
+            tab1, tab2, tab3 = st.tabs(["🎤 Interview", "🕸️ Skills Visualization", "📊 Dashboard Preview"])
         else:
-            tab1, tab2 = st.tabs(["🎤 Interview", "📊 Dashboard Preview"])
+            tab1, tab2, tab3 = st.tabs(["🎤 Interview", "🕸️ Skills Visualization", "📊 Dashboard Preview"])
         
         with tab1:
             if not st.session_state.resume_analyzed:
@@ -1135,13 +1130,14 @@ EXPERIENCE:
                     self.display_fairness_dashboard()
         
         with tab2:
+            self.skills_visualization_section()
+        
+        with tab3:
             if st.session_state.interview_completed:
-                # Show detailed question review in second tab
                 self.display_detailed_question_review()
             else:
                 st.info("Complete the interview to see the comprehensive fairness dashboard!")
         
-        # Always show sidebar controls
         self.sidebar_controls()
 
     def display_detailed_question_review(self):
@@ -1162,7 +1158,6 @@ EXPERIENCE:
                     st.markdown("**Your Answer:**")
                     st.info(answer if answer else "No answer provided")
                     
-                    # Show AI analysis if available
                     if analysis and analysis.get('success'):
                         st.markdown("**🤖 AI Analysis:**")
                         st.write(f"**Quality Score:** {analysis.get('quality_score', 'N/A')}/10")
@@ -1192,7 +1187,6 @@ EXPERIENCE:
                     else:
                         st.info("No bias analysis available")
                     
-                    # Show follow-up question if available
                     if (follow_up and follow_up.get('success') and 
                         st.session_state.ai_enabled and self.ai_enhancer.available):
                         st.markdown("**🤖 Suggested Follow-up:**")

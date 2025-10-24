@@ -2,6 +2,8 @@ import streamlit as st
 import os
 import sys
 from datetime import datetime
+import matplotlib.pyplot as plt
+import numpy as np
 
 # Add the utils directory to Python path
 sys.path.append(os.path.join(os.path.dirname(__file__), 'utils'))
@@ -148,6 +150,20 @@ class FairAIHireApp:
             margin: 1rem 0;
             border: 1px solid #333;
         }
+        
+        /* Dashboard specific styles */
+        .metric-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 1.5rem;
+            border-radius: 10px;
+            color: white;
+            text-align: center;
+            margin: 0.5rem 0;
+        }
+        
+        .heatmap-low { background-color: #28a745; color: white; padding: 0.5rem; border-radius: 5px; }
+        .heatmap-medium { background-color: #ffc107; color: black; padding: 0.5rem; border-radius: 5px; }
+        .heatmap-high { background-color: #dc3545; color: white; padding: 0.5rem; border-radius: 5px; }
         </style>
         """, unsafe_allow_html=True)
     
@@ -452,116 +468,383 @@ EXPERIENCE:
                 if st.button("🔄 Restart", use_container_width=True):
                     self.reset_interview()
                     st.rerun()
-    
-    def interview_summary_section(self):
-        """Display comprehensive interview summary"""
-        if not st.session_state.interview_completed:
-            return
+
+    def display_fairness_dashboard(self):
+        """Display comprehensive fairness dashboard with visual analytics"""
+        st.markdown('<div class="section-header">📊 Fairness Dashboard & Analytics</div>', unsafe_allow_html=True)
         
-        st.markdown('<div class="section-header">📊 Interview Summary</div>', unsafe_allow_html=True)
+        # Calculate metrics
+        skills_match_score = self.calculate_skills_match_score()
+        bias_alert_level, bias_color = self.calculate_bias_alert_level()
+        completeness_score = self.calculate_interview_completeness()
+        fairness_score = self.calculate_overall_fairness_score()
         
-        # Calculate bias metrics
-        total_questions = len(st.session_state.interview_questions)
-        biased_answers = 0
-        good_answers = 0
-        
-        for bias_report in st.session_state.bias_reports:
-            if bias_report and bias_report['severity'] in ['Medium', 'High']:
-                biased_answers += 1
-            else:
-                good_answers += 1
-        
-        # Summary cards
-        col1, col2, col3 = st.columns(3)
+        # Overall Metrics Row
+        col1, col2, col3, col4 = st.columns(4)
         
         with col1:
             st.markdown(f"""
-            <div class="summary-card">
-                <h3>📝 Total Questions</h3>
-                <h2>{total_questions}</h2>
+            <div class="summary-card" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
+                <h3>🎯 Skills Match</h3>
+                <h2>{skills_match_score}%</h2>
+                <p>Job Relevance</p>
             </div>
             """, unsafe_allow_html=True)
         
         with col2:
+            alert_emoji = {"Low": "🟢", "Medium": "🟡", "High": "🔴"}.get(bias_alert_level, "⚪")
             st.markdown(f"""
-            <div class="summary-card" style="background: linear-gradient(135deg, #28a745 0%, #20c997 100%);">
-                <h3>✅ Good Answers</h3>
-                <h2>{good_answers}</h2>
+            <div class="summary-card" style="background: linear-gradient(135deg, {bias_color} 0%, #e83e8c 100%);">
+                <h3>⚠️ Bias Alert</h3>
+                <h2>{alert_emoji} {bias_alert_level}</h2>
+                <p>Fairness Level</p>
             </div>
             """, unsafe_allow_html=True)
         
         with col3:
-            bias_color = "#dc3545" if biased_answers > 0 else "#28a745"
             st.markdown(f"""
-            <div class="summary-card" style="background: linear-gradient(135deg, {bias_color} 0%, #e83e8c 100%);">
-                <h3>⚠️ Biased Answers</h3>
-                <h2>{biased_answers}</h2>
+            <div class="summary-card" style="background: linear-gradient(135deg, #28a745 0%, #20c997 100%);">
+                <h3>📈 Completeness</h3>
+                <h2>{completeness_score}%</h2>
+                <p>Interview Progress</p>
             </div>
             """, unsafe_allow_html=True)
         
-        # Detailed question-by-question review
-        st.markdown("### 📋 Detailed Review")
+        with col4:
+            score_color = "#28a745" if fairness_score >= 7 else "#ffc107" if fairness_score >= 5 else "#dc3545"
+            st.markdown(f"""
+            <div class="summary-card" style="background: linear-gradient(135deg, {score_color} 0%, #fd7e14 100%);">
+                <h3>⚖️ Fairness Score</h3>
+                <h2>{fairness_score}/10</h2>
+                <p>Overall Rating</p>
+            </div>
+            """, unsafe_allow_html=True)
         
+        # Visualizations Section
+        st.markdown("### 📊 Visual Analytics")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            # Skills Match Visualization
+            st.markdown("**🎯 Skills Distribution**")
+            self.display_skills_chart()
+        
+        with col2:
+            # Bias Heat Map
+            st.markdown("**🔥 Bias Detection Heat Map**")
+            self.display_bias_heatmap()
+        
+        # Detailed Breakdown Section
+        st.markdown("### 📋 Detailed Analysis")
+        
+        tab1, tab2, tab3 = st.tabs(["🔍 Skills Analysis", "⚠️ Bias Alerts", "💡 Recommendations"])
+        
+        with tab1:
+            self.display_skills_analysis()
+        
+        with tab2:
+            self.display_bias_analysis()
+        
+        with tab3:
+            self.display_recommendations()
+        
+        # Export Functionality
+        st.markdown("### 📤 Export Results")
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            if st.button("📄 Generate Fairness Report", use_container_width=True):
+                report = self.generate_fairness_report()
+                st.download_button(
+                    label="📥 Download Report",
+                    data=report,
+                    file_name=f"fairness_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
+                    mime="text/plain",
+                    use_container_width=True
+                )
+        
+        with col2:
+            if st.button("🔄 Start New Interview", type="primary", use_container_width=True):
+                self.reset_interview()
+                st.rerun()
+
+    def calculate_skills_match_score(self):
+        """Calculate how well candidate skills match typical job requirements"""
+        if not st.session_state.candidate_skills:
+            return 0
+        
+        # Define target skills for a software developer role
+        target_technical_skills = ['python', 'java', 'javascript', 'sql', 'html', 'css', 'react', 'node.js']
+        target_soft_skills = ['communication', 'teamwork', 'leadership', 'problem solving', 'creativity']
+        
+        candidate_tech_skills = [skill for skill, category, _ in st.session_state.candidate_skills if category == 'technical']
+        candidate_soft_skills = [skill for skill, category, _ in st.session_state.candidate_skills if category == 'soft']
+        
+        # Calculate match percentages
+        tech_match = len([skill for skill in candidate_tech_skills if skill in target_technical_skills])
+        soft_match = len([skill for skill in candidate_soft_skills if skill in target_soft_skills])
+        
+        tech_score = (tech_match / len(target_technical_skills)) * 70 if target_technical_skills else 0
+        soft_score = (soft_match / len(target_soft_skills)) * 30 if target_soft_skills else 0
+        
+        return min(100, int(tech_score + soft_score))
+
+    def calculate_bias_alert_level(self):
+        """Calculate overall bias alert level"""
+        if not st.session_state.bias_reports:
+            return "Low", "#28a745"
+        
+        high_bias_count = 0
+        medium_bias_count = 0
+        
+        for report in st.session_state.bias_reports:
+            if report and report.get('severity') == 'High':
+                high_bias_count += 1
+            elif report and report.get('severity') == 'Medium':
+                medium_bias_count += 1
+        
+        if high_bias_count > 0:
+            return "High", "#dc3545"
+        elif medium_bias_count > 1:
+            return "Medium", "#ffc107"
+        else:
+            return "Low", "#28a745"
+
+    def calculate_interview_completeness(self):
+        """Calculate interview completion percentage"""
+        if not st.session_state.interview_questions:
+            return 0
+        
+        answered = len([answer for answer in st.session_state.candidate_answers if answer.strip()])
+        total = len(st.session_state.interview_questions)
+        
+        return int((answered / total) * 100) if total > 0 else 0
+
+    def calculate_overall_fairness_score(self):
+        """Calculate overall fairness score (1-10)"""
+        bias_alert_level, _ = self.calculate_bias_alert_level()
+        completeness = self.calculate_interview_completeness()
+        
+        # Base score based on bias level
+        bias_scores = {"Low": 9, "Medium": 6, "High": 3}
+        base_score = bias_scores.get(bias_alert_level, 5)
+        
+        # Adjust based on completeness
+        completeness_factor = completeness / 100.0
+        
+        return min(10, int(base_score + (completeness_factor * 2)))
+
+    def display_skills_chart(self):
+        """Display skills distribution chart"""
+        if not st.session_state.candidate_skills:
+            st.info("No skills data available")
+            return
+        
+        tech_skills = [skill for skill, category, _ in st.session_state.candidate_skills if category == 'technical']
+        soft_skills = [skill for skill, category, _ in st.session_state.candidate_skills if category == 'soft']
+        
+        fig, ax = plt.subplots(figsize=(8, 4))
+        
+        categories = ['Technical Skills', 'Soft Skills']
+        counts = [len(tech_skills), len(soft_skills)]
+        colors = ['#667eea', '#f093fb']
+        
+        bars = ax.bar(categories, counts, color=colors, alpha=0.8)
+        
+        # Add value labels on bars
+        for bar, count in zip(bars, counts):
+            height = bar.get_height()
+            ax.text(bar.get_x() + bar.get_width()/2., height + 0.1,
+                    f'{count}', ha='center', va='bottom', fontweight='bold')
+        
+        ax.set_ylabel('Number of Skills')
+        ax.set_title('Skills Distribution')
+        ax.grid(axis='y', alpha=0.3)
+        
+        st.pyplot(fig)
+
+    def display_bias_heatmap(self):
+        """Display bias detection heatmap"""
+        if not st.session_state.bias_reports:
+            st.info("No bias data available")
+            return
+        
+        # Count bias types
+        bias_types = {}
+        for report in st.session_state.bias_reports:
+            if report and report.get('bias_types'):
+                for bias_type in report['bias_types']:
+                    bias_types[bias_type] = bias_types.get(bias_type, 0) + 1
+        
+        if not bias_types:
+            st.success("✅ No biases detected!")
+            return
+        
+        fig, ax = plt.subplots(figsize=(8, 4))
+        
+        types = list(bias_types.keys())
+        counts = list(bias_types.values())
+        
+        # Create heatmap-like bars
+        colors = ['#dc3545' if count > 1 else '#ffc107' for count in counts]
+        bars = ax.bar(types, counts, color=colors, alpha=0.8)
+        
+        for bar, count in zip(bars, counts):
+            height = bar.get_height()
+            ax.text(bar.get_x() + bar.get_width()/2., height + 0.1,
+                    f'{count}', ha='center', va='bottom', fontweight='bold')
+        
+        ax.set_ylabel('Occurrences')
+        ax.set_title('Bias Detection Heatmap')
+        plt.xticks(rotation=45, ha='right')
+        ax.grid(axis='y', alpha=0.3)
+        
+        st.pyplot(fig)
+
+    def display_skills_analysis(self):
+        """Display detailed skills analysis"""
+        st.markdown("#### 🎯 Skills Identified")
+        
+        if st.session_state.candidate_skills:
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.markdown("**Technical Skills:**")
+                tech_skills = [skill for skill, category, _ in st.session_state.candidate_skills if category == 'technical']
+                if tech_skills:
+                    for skill in tech_skills:
+                        st.markdown(f'<span class="skill-chip skill-chip-technical">⚡ {skill.title()}</span>', 
+                                   unsafe_allow_html=True)
+                else:
+                    st.write("No technical skills detected")
+            
+            with col2:
+                st.markdown("**Soft Skills:**")
+                soft_skills = [skill for skill, category, _ in st.session_state.candidate_skills if category == 'soft']
+                if soft_skills:
+                    for skill in soft_skills:
+                        st.markdown(f'<span class="skill-chip skill-chip-soft">🌟 {skill.title()}</span>', 
+                                   unsafe_allow_html=True)
+                else:
+                    st.write("No soft skills detected")
+            
+            st.metric("Total Skills Identified", len(st.session_state.candidate_skills))
+        else:
+            st.info("No skills data available")
+
+    def display_bias_analysis(self):
+        """Display detailed bias analysis"""
+        st.markdown("#### ⚠️ Bias Detection Results")
+        
+        if not st.session_state.bias_reports or all(report is None for report in st.session_state.bias_reports):
+            st.success("✅ Excellent! No biases detected in the interview.")
+            return
+        
+        bias_count = 0
         for i, (question, answer, bias_report) in enumerate(zip(
             st.session_state.interview_questions,
             st.session_state.candidate_answers,
             st.session_state.bias_reports
         )):
-            with st.expander(f"Question {i+1}: {question[:80]}...", expanded=False):
-                col1, col2 = st.columns([2, 1])
-                
-                with col1:
-                    st.markdown("**Your Answer:**")
-                    st.info(answer if answer else "No answer provided")
-                
-                with col2:
-                    st.markdown("**Bias Analysis:**")
-                    if bias_report:
-                        severity = bias_report['severity']
-                        if severity == 'High':
-                            st.error(f"🟥 High Bias")
-                            if bias_report['bias_types']:
-                                st.write(f"Detected: {', '.join(bias_report['bias_types'])}")
-                        elif severity == 'Medium':
-                            st.warning(f"🟨 Medium Bias")
-                            if bias_report['bias_types']:
-                                st.write(f"Detected: {', '.join(bias_report['bias_types'])}")
-                        elif severity == 'Low':
-                            st.info(f"🟦 Low Bias")
-                        else:
-                            st.success(f"🟩 No Bias Detected")
-                    else:
-                        st.info("No bias analysis available")
+            if bias_report and bias_report.get('bias_types'):
+                bias_count += 1
+                with st.expander(f"🚩 Question {i+1}: Potential Bias Detected", expanded=False):
+                    st.write(f"**Question:** {question}")
+                    st.write(f"**Answer:** {answer}")
+                    st.write(f"**Bias Types:** {', '.join(bias_report['bias_types'])}")
+                    st.write(f"**Severity:** {bias_report.get('severity', 'Unknown')}")
         
-        # Overall bias report
-        st.markdown("### 📈 Overall Bias Report")
-        overall_report = generate_bias_report(st.session_state.interview_data)
+        if bias_count == 0:
+            st.success("✅ No significant biases detected in the interview responses.")
+
+    def display_recommendations(self):
+        """Display fairness recommendations"""
+        st.markdown("#### 💡 Recommendations for Fair Hiring")
         
-        col1, col2 = st.columns(2)
+        recommendations = [
+            "✅ Focus on job-relevant skills and experience only",
+            "✅ Use standardized questions for all candidates",
+            "✅ Avoid questions about personal demographics",
+            "✅ Evaluate based on demonstrated capabilities",
+            "✅ Use blind resume screening when possible",
+            "✅ Provide clear evaluation criteria upfront",
+            "✅ Train interviewers on unconscious bias",
+            "✅ Use structured interview formats"
+        ]
         
-        with col1:
-            st.metric("Overall Fairness Score", f"{overall_report['overall_fairness_score']}/10")
-            st.metric("Total Bias Instances", overall_report['total_bias_instances'])
+        for recommendation in recommendations:
+            st.write(recommendation)
         
-        with col2:
-            st.metric("Bias Types Detected", len(overall_report['bias_types_detected']))
-            st.metric("Fair Questions", overall_report['detailed_metrics']['fair_questions_count'])
+        # Specific recommendations based on analysis
+        bias_alert_level, _ = self.calculate_bias_alert_level()
+        
+        if bias_alert_level == "High":
+            st.warning("🚨 **Priority Action Needed:** Consider reviewing and retraining interviewers on bias awareness.")
+        elif bias_alert_level == "Medium":
+            st.info("📝 **Improvement Opportunity:** Implement structured scoring rubrics for more objective evaluation.")
+
+    def generate_fairness_report(self):
+        """Generate a comprehensive fairness report"""
+        report_lines = []
+        report_lines.append("=" * 60)
+        report_lines.append("           FAIRAI HIRE - FAIRNESS REPORT")
+        report_lines.append("=" * 60)
+        report_lines.append(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        report_lines.append("")
+        
+        # Summary Metrics
+        report_lines.append("SUMMARY METRICS:")
+        report_lines.append(f"  • Skills Match Score: {self.calculate_skills_match_score()}%")
+        report_lines.append(f"  • Bias Alert Level: {self.calculate_bias_alert_level()[0]}")
+        report_lines.append(f"  • Interview Completeness: {self.calculate_interview_completeness()}%")
+        report_lines.append(f"  • Overall Fairness Score: {self.calculate_overall_fairness_score()}/10")
+        report_lines.append("")
+        
+        # Skills Analysis
+        report_lines.append("SKILLS ANALYSIS:")
+        if st.session_state.candidate_skills:
+            tech_skills = [skill for skill, category, _ in st.session_state.candidate_skills if category == 'technical']
+            soft_skills = [skill for skill, category, _ in st.session_state.candidate_skills if category == 'soft']
+            report_lines.append(f"  • Technical Skills: {', '.join(tech_skills) if tech_skills else 'None'}")
+            report_lines.append(f"  • Soft Skills: {', '.join(soft_skills) if soft_skills else 'None'}")
+        else:
+            report_lines.append("  • No skills data available")
+        report_lines.append("")
+        
+        # Bias Analysis
+        report_lines.append("BIAS ANALYSIS:")
+        bias_count = 0
+        for i, (question, bias_report) in enumerate(zip(st.session_state.interview_questions, st.session_state.bias_reports)):
+            if bias_report and bias_report.get('bias_types'):
+                bias_count += 1
+                report_lines.append(f"  • Question {i+1}: {', '.join(bias_report['bias_types'])}")
+        
+        if bias_count == 0:
+            report_lines.append("  • No biases detected - Excellent!")
+        report_lines.append("")
         
         # Recommendations
-        if overall_report.get('recommendations'):
-            st.markdown("### 💡 Recommendations for Fairer Interviews")
-            for rec in overall_report['recommendations'][:5]:  # Show top 5
-                st.write(f"• {rec}")
+        report_lines.append("RECOMMENDATIONS:")
+        report_lines.append("  1. Focus on job-relevant qualifications")
+        report_lines.append("  2. Use standardized evaluation criteria")
+        report_lines.append("  3. Avoid demographic-based assumptions")
+        report_lines.append("  4. Implement structured interview processes")
         
-        # Action buttons
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.button("📄 Start New Interview", type="primary", use_container_width=True):
-                self.reset_interview()
-                st.rerun()
-        with col2:
-            if st.button("📊 Export Report", use_container_width=True):
-                st.info("Export functionality coming soon!")
+        report_lines.append("")
+        report_lines.append("=" * 60)
+        report_lines.append("           HIRING THAT SEES SKILLS, NOT DEMOGRAPHICS")
+        report_lines.append("=" * 60)
+        
+        return "\n".join(report_lines)
+    
+    def interview_summary_section(self):
+        """Display comprehensive interview summary - NOW USING FAIRNESS DASHBOARD"""
+        if not st.session_state.interview_completed:
+            return
+        
+        # Use the new fairness dashboard instead of old summary
+        self.display_fairness_dashboard()
     
     def sidebar_controls(self):
         """Display sidebar controls and information"""
@@ -613,9 +896,9 @@ EXPERIENCE:
         
         # Create tabs for different sections
         if st.session_state.interview_completed:
-            tab1, tab2 = st.tabs(["📊 Summary", "🎤 Interview"])
+            tab1, tab2 = st.tabs(["📊 Fairness Dashboard", "🎤 Interview Review"])
         else:
-            tab1, tab2 = st.tabs(["🎤 Interview", "📊 Summary"])
+            tab1, tab2 = st.tabs(["🎤 Interview", "📊 Dashboard Preview"])
         
         with tab1:
             if not st.session_state.resume_analyzed:
@@ -625,16 +908,52 @@ EXPERIENCE:
                     self.display_skills()
                     self.interview_section()
                 else:
-                    st.info("Interview completed! Check the Summary tab for results.")
+                    self.display_fairness_dashboard()
         
         with tab2:
             if st.session_state.interview_completed:
-                self.interview_summary_section()
+                # Show detailed question review in second tab
+                self.display_detailed_question_review()
             else:
-                st.info("Complete the interview to see the summary report!")
+                st.info("Complete the interview to see the comprehensive fairness dashboard!")
         
         # Always show sidebar controls
         self.sidebar_controls()
+
+    def display_detailed_question_review(self):
+        """Display detailed question-by-question review in separate tab"""
+        st.markdown('<div class="section-header">📋 Detailed Question Review</div>', unsafe_allow_html=True)
+        
+        for i, (question, answer, bias_report) in enumerate(zip(
+            st.session_state.interview_questions,
+            st.session_state.candidate_answers,
+            st.session_state.bias_reports
+        )):
+            with st.expander(f"Question {i+1}: {question[:80]}...", expanded=False):
+                col1, col2 = st.columns([2, 1])
+                
+                with col1:
+                    st.markdown("**Your Answer:**")
+                    st.info(answer if answer else "No answer provided")
+                
+                with col2:
+                    st.markdown("**Bias Analysis:**")
+                    if bias_report:
+                        severity = bias_report['severity']
+                        if severity == 'High':
+                            st.error(f"🟥 High Bias")
+                            if bias_report['bias_types']:
+                                st.write(f"Detected: {', '.join(bias_report['bias_types'])}")
+                        elif severity == 'Medium':
+                            st.warning(f"🟨 Medium Bias")
+                            if bias_report['bias_types']:
+                                st.write(f"Detected: {', '.join(bias_report['bias_types'])}")
+                        elif severity == 'Low':
+                            st.info(f"🟦 Low Bias")
+                        else:
+                            st.success(f"🟩 No Bias Detected")
+                    else:
+                        st.info("No bias analysis available")
 
 # Run the application
 if __name__ == "__main__":

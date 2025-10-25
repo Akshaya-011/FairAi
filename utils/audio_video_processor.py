@@ -26,43 +26,36 @@ class RealtimeAudioVideoProcessor:
         Real-time speech recognition with live transcription
         Returns: (final_transcription, audio_path, video_path)
         """
-        audio_path = None
-        video_path = None
-        cap = None
-        out = None
-        p = None
-        stream = None
-        
         try:
             # Create temporary files
-            audio_temp = tempfile.NamedTemporaryFile(delete=False, suffix='.wav')
-            video_temp = tempfile.NamedTemporaryFile(delete=False, suffix='.avi')
-            audio_path = audio_temp.name
-            video_path = video_temp.name
-            audio_temp.close()
-            video_temp.close()
+            with tempfile.NamedTemporaryFile(delete=False, suffix='.wav') as audio_temp:
+                audio_path = audio_temp.name
+            with tempfile.NamedTemporaryFile(delete=False, suffix='.avi') as video_temp:
+                video_path = video_temp.name
+
+            # Initialize camera
+            cap = cv2.VideoCapture(0)
+            camera_available = cap.isOpened()
             
-            # Initialize PyAudio
+            if not camera_available:
+                st.warning("📷 Camera not available. Using audio-only mode.")
+            
+            # Initialize video writer if camera is available
+            out = None
+            if camera_available:
+                cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+                cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+                cap.set(cv2.CAP_PROP_FPS, 20)
+                fourcc = cv2.VideoWriter_fourcc(*'XVID')
+                out = cv2.VideoWriter(video_path, fourcc, 20.0, (640, 480))
+
+            # Initialize audio
             p = pyaudio.PyAudio()
             FORMAT = pyaudio.paInt16
             CHANNELS = 1
-            RATE = 16000  # 16kHz for better speech recognition
+            RATE = 16000
             CHUNK = 1024
             
-            # Initialize camera
-            cap = cv2.VideoCapture(0)
-            if not cap.isOpened():
-                st.error("❌ Camera not available. Please check camera permissions.")
-                return "", None, None
-            
-            cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-            cap.set(cv2.CAP_PROP_FPS, 20)
-            
-            fourcc = cv2.VideoWriter_fourcc(*'XVID')
-            out = cv2.VideoWriter(video_path, fourcc, 20.0, (640, 480))
-            
-            # Start audio stream
             stream = p.open(
                 format=FORMAT,
                 channels=CHANNELS,
@@ -75,7 +68,7 @@ class RealtimeAudioVideoProcessor:
             audio_frames = []
             transcription_parts = []
             
-            # Real-time recognition setup
+            # Setup recognizer
             recognizer = sr.Recognizer()
             recognizer.energy_threshold = 300
             recognizer.dynamic_energy_threshold = True
@@ -84,7 +77,7 @@ class RealtimeAudioVideoProcessor:
             start_time = time.time()
             audio_buffer = []
             last_transcription_time = start_time
-            buffer_duration = 3  # Transcribe every 3 seconds
+            buffer_duration = 3
             
             st.info(f"🎤 **Live Recording Started** - Speak clearly! ({duration}s)")
             
@@ -100,7 +93,7 @@ class RealtimeAudioVideoProcessor:
                 progress_bar.progress(min(progress, 1.0))
                 remaining = duration - elapsed
                 
-                # Display status with word count
+                # Display status
                 current_words = len(' '.join(transcription_parts).split())
                 status_text.text(f"⏺️ Recording... {remaining:.1f}s remaining | Words: {current_words}")
                 
@@ -110,45 +103,42 @@ class RealtimeAudioVideoProcessor:
                     audio_frames.append(audio_chunk)
                     audio_buffer.append(audio_chunk)
                 except Exception as e:
-                    pass  # Continue on audio errors
+                    st.warning(f"Audio read error: {e}")
+                    continue
                 
-                # Capture video
-                ret, frame = cap.read()
-                if ret:
-                    rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                    video_placeholder.image(rgb_frame, channels="RGB", use_container_width=True)
-                    out.write(frame)
+                # Capture video if camera available
+                if camera_available:
+                    ret, frame = cap.read()
+                    if ret:
+                        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                        video_placeholder.image(rgb_frame, channels="RGB", use_container_width=True)
+                        out.write(frame)
                 
-                # Real-time transcription every N seconds
+                # Real-time transcription
                 current_time = time.time()
                 if (current_time - last_transcription_time) >= buffer_duration and len(audio_buffer) > 0:
-                    # Create audio data from buffer
-                    buffer_audio = b''.join(audio_buffer)
-                    
-                    # Try to transcribe
                     try:
+                        buffer_audio = b''.join(audio_buffer)
                         audio_data = sr.AudioData(buffer_audio, RATE, p.get_sample_size(FORMAT))
                         text = recognizer.recognize_google(audio_data, language='en-US')
                         
                         if text and text.strip():
                             transcription_parts.append(text)
-                            # Display real-time transcription
                             full_text = " ".join(transcription_parts)
                             transcription_display.success(f"📝 **Live Transcription:** {full_text}")
                     except sr.UnknownValueError:
                         pass  # No speech detected
                     except sr.RequestError as e:
                         st.warning(f"⚠️ Speech service error: {e}")
-                    except Exception:
-                        pass  # Continue on any error
+                    except Exception as e:
+                        st.warning(f"Transcription error: {e}")
                     
-                    # Reset buffer
                     audio_buffer = []
                     last_transcription_time = current_time
                 
                 time.sleep(0.01)
             
-            # Final transcription of remaining buffer
+            # Final transcription
             if len(audio_buffer) > 0:
                 try:
                     buffer_audio = b''.join(audio_buffer)
@@ -189,48 +179,39 @@ class RealtimeAudioVideoProcessor:
                         if final_transcription:
                             transcription_display.success(f"📝 **Transcription:** {final_transcription}")
                 except Exception as e:
-                    st.error(f"❌ Transcription failed: {str(e)}")
+                    st.error(f"❌ Final transcription failed: {str(e)}")
             
             # Verify we have transcription
             if not final_transcription or not final_transcription.strip():
                 st.warning("⚠️ No speech detected. Please speak more clearly and try again.")
+                final_transcription = "No speech detected in recording."
             
             return final_transcription, audio_path, video_path
             
         except Exception as e:
             st.error(f"❌ Recording error: {str(e)}")
-            import traceback
-            st.error(f"Details: {traceback.format_exc()}")
-            return "", None, None
+            # Return fallback data
+            return "Recording failed - please use text input instead.", None, None
         
         finally:
-            # Cleanup resources
-            if stream:
-                try:
+            # Cleanup in finally block to ensure it runs
+            try:
+                if 'stream' in locals():
                     stream.stop_stream()
                     stream.close()
-                except:
-                    pass
-            if p:
-                try:
+                if 'p' in locals():
                     p.terminate()
-                except:
-                    pass
-            if cap:
-                try:
+                if 'cap' in locals():
                     cap.release()
-                except:
-                    pass
-            if out:
-                try:
+                if 'out' in locals():
                     out.release()
-                except:
-                    pass
+            except:
+                pass
     
     def analyze_speech_patterns(self, audio_path):
         """Analyze recorded audio for speech patterns"""
         try:
-            if not os.path.exists(audio_path):
+            if not audio_path or not os.path.exists(audio_path):
                 return {'success': False, 'error': 'Audio file not found'}
             
             file_size = os.path.getsize(audio_path)
@@ -266,7 +247,7 @@ class RealtimeAudioVideoProcessor:
     def analyze_video_feed(self, video_path):
         """Analyze video for engagement and face detection"""
         try:
-            if not os.path.exists(video_path):
+            if not video_path or not os.path.exists(video_path):
                 return {'success': False, 'error': 'Video file not found'}
             
             file_size = os.path.getsize(video_path)
@@ -343,46 +324,36 @@ class AudioVideoProcessor:
         Record audio and video for specified duration
         Returns: (audio_path, video_path)
         """
-        audio_path = None
-        video_path = None
-        p = None
-        stream = None
-        cap = None
-        out = None
-        
         try:
             # Create temporary files
-            audio_temp = tempfile.NamedTemporaryFile(delete=False, suffix='.wav')
-            video_temp = tempfile.NamedTemporaryFile(delete=False, suffix='.avi')
-            audio_path = audio_temp.name
-            video_path = video_temp.name
-            audio_temp.close()
-            video_temp.close()
+            with tempfile.NamedTemporaryFile(delete=False, suffix='.wav') as audio_temp:
+                audio_path = audio_temp.name
+            with tempfile.NamedTemporaryFile(delete=False, suffix='.avi') as video_temp:
+                video_path = video_temp.name
+
+            # Initialize camera
+            cap = cv2.VideoCapture(0)
+            camera_available = cap.isOpened()
             
-            # Initialize PyAudio
+            if not camera_available:
+                st.warning("📷 Camera not available. Recording audio only.")
+            
+            # Initialize video writer if camera available
+            out = None
+            if camera_available:
+                cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+                cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+                cap.set(cv2.CAP_PROP_FPS, 20)
+                fourcc = cv2.VideoWriter_fourcc(*'XVID')
+                out = cv2.VideoWriter(video_path, fourcc, 20.0, (640, 480))
+
+            # Initialize audio
             p = pyaudio.PyAudio()
             FORMAT = pyaudio.paInt16
             CHANNELS = 1
             RATE = 44100
             CHUNK = 1024
             
-            # Initialize camera
-            cap = cv2.VideoCapture(0)
-            if not cap.isOpened():
-                st.error("❌ Could not access camera. Please check camera permissions.")
-                return None, None
-            
-            cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-            cap.set(cv2.CAP_PROP_FPS, 20)
-            
-            fourcc = cv2.VideoWriter_fourcc(*'XVID')
-            out = cv2.VideoWriter(video_path, fourcc, 20.0, (640, 480))
-            
-            # Audio frames storage
-            audio_frames = []
-            
-            # Start audio stream
             stream = p.open(
                 format=FORMAT,
                 channels=CHANNELS,
@@ -390,6 +361,9 @@ class AudioVideoProcessor:
                 input=True,
                 frames_per_buffer=CHUNK
             )
+            
+            # Audio frames storage
+            audio_frames = []
             
             # Recording UI
             st.info(f"🎥 Recording for {duration} seconds... Speak now!")
@@ -412,15 +386,16 @@ class AudioVideoProcessor:
                     audio_data = stream.read(CHUNK, exception_on_overflow=False)
                     audio_frames.append(audio_data)
                 except Exception as e:
-                    pass
+                    st.warning(f"Audio capture error: {e}")
                 
-                # Capture video frame
-                ret, frame = cap.read()
-                if ret:
-                    frame_count += 1
-                    rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                    video_placeholder.image(rgb_frame, channels="RGB", use_container_width=True)
-                    out.write(frame)
+                # Capture video frame if camera available
+                if camera_available:
+                    ret, frame = cap.read()
+                    if ret:
+                        frame_count += 1
+                        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                        video_placeholder.image(rgb_frame, channels="RGB", use_container_width=True)
+                        out.write(frame)
                 
                 time.sleep(0.01)
             
@@ -428,9 +403,6 @@ class AudioVideoProcessor:
             if len(audio_frames) == 0:
                 st.error("❌ No audio data captured!")
                 return None, None
-            
-            if frame_count == 0:
-                st.warning("⚠️ No video frames captured!")
             
             # Save audio
             wf = wave.open(audio_path, 'wb')
@@ -446,7 +418,7 @@ class AudioVideoProcessor:
             # Verify files
             if os.path.exists(audio_path):
                 st.success(f"✅ Audio: {os.path.getsize(audio_path) / 1024:.1f} KB, {len(audio_frames)} frames")
-            if os.path.exists(video_path):
+            if camera_available and os.path.exists(video_path):
                 st.success(f"✅ Video: {os.path.getsize(video_path) / 1024:.1f} KB, {frame_count} frames")
             
             time.sleep(1)
@@ -456,33 +428,22 @@ class AudioVideoProcessor:
             
         except Exception as e:
             st.error(f"❌ Recording error: {str(e)}")
-            import traceback
-            st.error(f"Details: {traceback.format_exc()}")
             return None, None
         
         finally:
             # Cleanup
-            if stream:
-                try:
+            try:
+                if 'stream' in locals():
                     stream.stop_stream()
                     stream.close()
-                except:
-                    pass
-            if p:
-                try:
+                if 'p' in locals():
                     p.terminate()
-                except:
-                    pass
-            if cap:
-                try:
+                if 'cap' in locals():
                     cap.release()
-                except:
-                    pass
-            if out:
-                try:
+                if 'out' in locals():
                     out.release()
-                except:
-                    pass
+            except:
+                pass
 
     def speech_to_text(self, audio_path):
         """
@@ -490,7 +451,7 @@ class AudioVideoProcessor:
         Returns: (transcribed_text, success)
         """
         try:
-            if not os.path.exists(audio_path):
+            if not audio_path or not os.path.exists(audio_path):
                 return "Audio file not found", False
             
             file_size = os.path.getsize(audio_path)
@@ -530,7 +491,7 @@ class AudioVideoProcessor:
     def analyze_speech_patterns(self, audio_path):
         """Analyze speech patterns from audio"""
         try:
-            if not os.path.exists(audio_path):
+            if not audio_path or not os.path.exists(audio_path):
                 return {'success': False, 'error': 'Audio file not found'}
             
             file_size = os.path.getsize(audio_path)
@@ -577,7 +538,7 @@ class AudioVideoProcessor:
     def analyze_video_feed(self, video_path):
         """Analyze video feed for engagement"""
         try:
-            if not os.path.exists(video_path):
+            if not video_path or not os.path.exists(video_path):
                 return {'success': False, 'error': 'Video file not found'}
             
             file_size = os.path.getsize(video_path)

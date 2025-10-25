@@ -30,6 +30,8 @@ try:
     from utils.analytics_engine import AnalyticsEngine
     # NEW: Import language support
     from utils.language_support import language_support
+    # NEW: Import audio/video processor
+    from utils.audio_video_processor import AudioVideoProcessor, RealtimeAudioVideoProcessor, av_processor, realtime_av_processor
 except ImportError as e:
     st.error(f"Some modules not found: {e}")
     
@@ -162,11 +164,45 @@ except ImportError as e:
         def adapt_question_for_language(self, question, target_language, original_language='English'):
             return question
     
+    # Audio/Video processor fallback
+    class AudioVideoProcessor:
+        def __init__(self):
+            self.is_recording = False
+        
+        def record_audio_video(self, duration=30):
+            st.error("Audio/Video recording not available in fallback mode")
+            return None, None
+        
+        def speech_to_text(self, audio_path):
+            return "Audio transcription not available", False
+        
+        def analyze_speech_patterns(self, audio_path):
+            return {'success': False, 'error': 'Audio processing not available'}
+        
+        def analyze_video_feed(self, video_path):
+            return {'success': False, 'error': 'Video processing not available'}
+    
+    class RealtimeAudioVideoProcessor:
+        def __init__(self):
+            self.is_recording = False
+        
+        def start_realtime_recording(self, duration=30):
+            st.error("Real-time audio/video recording not available in fallback mode")
+            return "", None, None
+        
+        def analyze_speech_patterns(self, audio_path):
+            return {'success': False, 'error': 'Audio processing not available'}
+        
+        def analyze_video_feed(self, video_path):
+            return {'success': False, 'error': 'Video processing not available'}
+    
     bias_heatmap = BiasHeatmapGenerator()
     difficulty_manager = DifficultyManager()
     heatmap_generator = HeatmapGenerator()
     analytics_engine = AnalyticsEngine()
     language_support = LanguageSupport()
+    av_processor = AudioVideoProcessor()
+    realtime_av_processor = RealtimeAudioVideoProcessor()
     
     def detect_bias_in_text(text): 
         return {"bias_types": [], "severity": "Low", "confidence": 0.0}
@@ -194,14 +230,148 @@ except ImportError as e:
         return {}
     def calculate_skill_metrics(*args): 
         return {"total_skills": 0, "avg_confidence": 0, "total_relationships": 0, "connectivity_score": 0}
-    def create_skills_network(*args): 
-        return go.Figure()
-    def plot_skill_categories(*args): 
-        return go.Figure()
-    def create_category_barchart(*args): 
-        return go.Figure()
-    def create_confidence_heatmap(*args): 
-        return go.Figure()
+    
+    # FIXED: Create proper fallback visualizations that work with dictionary data
+    def create_skills_network(skills_graph):
+        return create_simple_skills_chart(skills_graph)
+    
+    def plot_skill_categories(skills_data):
+        return create_simple_category_chart(skills_data)
+    
+    def create_category_barchart(skills_data):
+        return create_simple_barchart(skills_data)
+    
+    def create_confidence_heatmap(skills_graph):
+        return create_simple_heatmap(skills_graph)
+    
+    # Helper functions for fallback visualizations
+    def create_simple_skills_chart(skills_graph):
+        """Create a simple skills chart that works with dictionary data"""
+        fig = go.Figure()
+        
+        if skills_graph and isinstance(skills_graph, dict):
+            # Extract skills from the graph
+            skills = list(skills_graph.keys())
+            confidences = []
+            
+            for skill_name, skill_data in skills_graph.items():
+                if hasattr(skill_data, 'confidence'):
+                    confidences.append(skill_data.confidence)
+                elif isinstance(skill_data, dict) and 'confidence' in skill_data:
+                    confidences.append(skill_data['confidence'])
+                else:
+                    confidences.append(0.7)  # Default confidence
+            
+            fig.add_trace(go.Bar(
+                x=skills,
+                y=confidences,
+                marker_color='lightblue'
+            ))
+        else:
+            # Fallback with sample data
+            fig.add_trace(go.Bar(
+                x=['Python', 'Communication', 'Teamwork'],
+                y=[0.8, 0.7, 0.6],
+                marker_color='lightgreen'
+            ))
+        
+        fig.update_layout(
+            title="Skills Confidence Levels",
+            xaxis_title="Skills",
+            yaxis_title="Confidence Level",
+            height=400
+        )
+        return fig
+    
+    def create_simple_category_chart(skills_data):
+        """Create a simple category chart"""
+        fig = go.Figure()
+        
+        if skills_data and isinstance(skills_data, dict):
+            categories = list(skills_data.keys())
+            counts = [len(skills) for skills in skills_data.values()]
+            
+            fig.add_trace(go.Pie(
+                labels=categories,
+                values=counts,
+                hole=0.3
+            ))
+        else:
+            fig.add_trace(go.Pie(
+                labels=['Technical', 'Soft'],
+                values=[3, 2],
+                hole=0.3
+            ))
+        
+        fig.update_layout(
+            title="Skills by Category",
+            height=400
+        )
+        return fig
+    
+    def create_simple_barchart(skills_data):
+        """Create a simple bar chart"""
+        fig = go.Figure()
+        
+        if skills_data and isinstance(skills_data, dict):
+            categories = list(skills_data.keys())
+            counts = [len(skills) for skills in skills_data.values()]
+            
+            fig.add_trace(go.Bar(
+                x=categories,
+                y=counts,
+                marker_color='coral'
+            ))
+        else:
+            fig.add_trace(go.Bar(
+                x=['Technical', 'Soft'],
+                y=[3, 2],
+                marker_color='coral'
+            ))
+        
+        fig.update_layout(
+            title="Skills Distribution by Category",
+            xaxis_title="Category",
+            yaxis_title="Number of Skills",
+            height=400
+        )
+        return fig
+    
+    def create_simple_heatmap(skills_graph):
+        """Create a simple heatmap"""
+        fig = go.Figure()
+        
+        if skills_graph and isinstance(skills_graph, dict):
+            skills = list(skills_graph.keys())
+            confidences = []
+            
+            for skill_name, skill_data in skills_graph.items():
+                if hasattr(skill_data, 'confidence'):
+                    confidences.append([skill_data.confidence])
+                elif isinstance(skill_data, dict) and 'confidence' in skill_data:
+                    confidences.append([skill_data['confidence']])
+                else:
+                    confidences.append([0.7])
+            
+            fig.add_trace(go.Heatmap(
+                z=confidences,
+                x=['Confidence'],
+                y=skills,
+                colorscale='Viridis'
+            ))
+        else:
+            fig.add_trace(go.Heatmap(
+                z=[[0.8], [0.7], [0.6]],
+                x=['Confidence'],
+                y=['Python', 'Communication', 'Teamwork'],
+                colorscale='Viridis'
+            ))
+        
+        fig.update_layout(
+            title="Skills Confidence Heatmap",
+            height=400
+        )
+        return fig
 
 class FairAIHireApp:
     def __init__(self):
@@ -215,6 +385,9 @@ class FairAIHireApp:
             self.heatmap_generator = heatmap_generator
             self.analytics_engine = AnalyticsEngine()
             self.language_support = language_support
+            # NEW: Initialize audio/video processors
+            self.av_processor = av_processor
+            self.realtime_av_processor = realtime_av_processor
         except Exception as e:
             st.error(f"Error initializing: {e}")
             self.parser = ResumeParser()
@@ -226,6 +399,8 @@ class FairAIHireApp:
             self.heatmap_generator = heatmap_generator
             self.analytics_engine = AnalyticsEngine()
             self.language_support = language_support
+            self.av_processor = AudioVideoProcessor()
+            self.realtime_av_processor = RealtimeAudioVideoProcessor()
         
         self.setup_page()
     
@@ -355,6 +530,22 @@ class FairAIHireApp:
             margin: 1rem 0;
             color: white;
         }
+        .av-controls {
+            background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+            padding: 1.5rem;
+            border-radius: 10px;
+            margin: 1rem 0;
+            color: white;
+        }
+        .recording-active {
+            background: linear-gradient(135deg, #dc3545 0%, #e83e8c 100%);
+            animation: pulse 1.5s infinite;
+        }
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.7; }
+            100% { opacity: 1; }
+        }
         </style>
         """, unsafe_allow_html=True)
     
@@ -392,7 +583,14 @@ class FairAIHireApp:
             # NEW: Language support
             'selected_language': 'English',
             'auto_detected_language': None,
-            'resume_language_detected': False
+            'resume_language_detected': False,
+            # NEW: Audio/Video recording state
+            'audio_video_enabled': False,
+            'recording_in_progress': False,
+            'last_audio_path': None,
+            'last_video_path': None,
+            'speech_analysis': {},
+            'video_analysis': {}
         }
         
         for key, value in defaults.items():
@@ -402,7 +600,7 @@ class FairAIHireApp:
     def reset_interview(self):
         """Reset the interview session"""
         for key in list(st.session_state.keys()):
-            if key not in ['ai_enabled', 'selected_language']:  # Keep AI and language settings
+            if key not in ['ai_enabled', 'selected_language', 'audio_video_enabled']:  # Keep AI and language settings
                 del st.session_state[key]
         self.initialize_session_state()
     
@@ -490,6 +688,19 @@ class FairAIHireApp:
             st.session_state.skills_graph = self._create_fallback_skills_graph(st.session_state.candidate_skills)
             st.session_state.skills_data = get_skills_by_category(st.session_state.skills_graph)
             return True  # Continue anyway with fallback data
+    
+    def create_simple_skills_graph(self, skills_result):
+        """Create a simple skills graph from extracted skills"""
+        skills_graph = {}
+        for skill, category, confidence in skills_result:
+            skills_graph[skill] = {
+                'skill': skill,
+                'category': category,
+                'confidence': confidence,
+                'frequency': 1,
+                'related_skills': []
+            }
+        return skills_graph
     
     def generate_interview_questions(self):
         """Generate personalized interview questions with bias checking and language adaptation"""
@@ -608,10 +819,10 @@ class FairAIHireApp:
                     )
                     st.session_state.answer_analysis[question_index] = analysis
                     
-                    # Generate follow-up question - FIXED THE SYNTAX ERROR HERE
+                    # Generate follow-up question
                     skill_focus = None
                     if skills_list and question_index < len(skills_list):
-                        skill_focus = skills_list[min(question_index, len(skills_list)-1)]  # FIXED: Added missing closing parenthesis
+                        skill_focus = skills_list[min(question_index, len(skills_list)-1)]
                     
                     follow_up = self.ai_enhancer.generate_follow_up_question(
                         answer_text,
@@ -1118,6 +1329,23 @@ class FairAIHireApp:
                 st.error("❌ Ollama not available")
             
             st.markdown("---")
+            
+            # NEW: Audio/Video Toggle
+            st.markdown(f"### 🎤🎥 {self.get_translated_text('audio_video')}")
+            av_enabled = st.toggle(self.get_translated_text("enable_av_recording"), 
+                                 value=st.session_state.audio_video_enabled,
+                                 help="Enable audio/video recording and analysis features")
+            
+            if av_enabled != st.session_state.audio_video_enabled:
+                st.session_state.audio_video_enabled = av_enabled
+                st.rerun()
+            
+            if st.session_state.audio_video_enabled:
+                st.success("🎤 Audio/Video Recording Enabled")
+            else:
+                st.info("🎤 Audio/Video Recording Disabled")
+            
+            st.markdown("---")
             st.markdown(f"### 📊 {self.get_translated_text('current_status')}")
             
             if st.session_state.resume_analyzed:
@@ -1258,7 +1486,7 @@ Skills: Python, React, SQL, Teamwork, Communication""",
             st.markdown('</div>', unsafe_allow_html=True)
 
     def skills_visualization_section(self):
-        """Display skills graph visualization"""
+        """Display skills graph visualization - FIXED VERSION"""
         st.markdown(f'<div class="section-header">🕸️ {self.get_translated_text("skills_visualization")}</div>', unsafe_allow_html=True)
         
         if not st.session_state.skills_graph:
@@ -1277,9 +1505,14 @@ Skills: Python, React, SQL, Teamwork, Communication""",
             - 🎨 **Colors** = Different skill categories
             """)
             
-            # Create network graph
-            fig_network = create_skills_network(st.session_state.skills_graph)
-            st.plotly_chart(fig_network, use_container_width=True, key="skills_network_graph")
+            # Create network graph - FIXED: Use the safe visualization function
+            try:
+                fig_network = create_skills_network(st.session_state.skills_graph)
+                st.plotly_chart(fig_network, use_container_width=True, key="skills_network_graph")
+            except Exception as e:
+                st.error(f"Network graph error: {str(e)}")
+                st.info("Showing simplified skills visualization instead")
+                self.display_simple_skills_visualization()
             
             # Show skills list with details
             st.markdown("### 📋 Detected Skills Details")
@@ -1310,8 +1543,25 @@ Skills: Python, React, SQL, Teamwork, Communication""",
                     "Related Skills": related_count
                 })
             
-            df_skills = pd.DataFrame(skills_list)
-            st.dataframe(df_skills, use_container_width=True, key="skills_dataframe")
+            if skills_list:
+                df_skills = pd.DataFrame(skills_list)
+                st.dataframe(df_skills, use_container_width=True, key="skills_dataframe")
+            else:
+                # Fallback to candidate skills
+                if st.session_state.candidate_skills:
+                    skills_list = []
+                    for skill, category, confidence in st.session_state.candidate_skills:
+                        skills_list.append({
+                            "Skill": skill,
+                            "Category": category,
+                            "Confidence": f"{confidence:.2f}",
+                            "Frequency": 1,
+                            "Related Skills": 0
+                        })
+                    df_skills = pd.DataFrame(skills_list)
+                    st.dataframe(df_skills, use_container_width=True, key="skills_dataframe_fallback")
+                else:
+                    st.info("No skills data available")
             
         with viz_tab2:
             st.markdown(f"### 📊 {self.get_translated_text('skills_category_analysis')}")
@@ -1321,22 +1571,38 @@ Skills: Python, React, SQL, Teamwork, Communication""",
             with col1:
                 # Category distribution
                 st.markdown("#### Skills by Category")
-                fig_barchart = create_category_barchart(st.session_state.skills_data)
-                st.plotly_chart(fig_barchart, use_container_width=True, key="category_barchart")
+                try:
+                    fig_barchart = create_category_barchart(st.session_state.skills_data)
+                    st.plotly_chart(fig_barchart, use_container_width=True, key="category_barchart")
+                except Exception as e:
+                    st.error(f"Category chart error: {str(e)}")
+                    self.display_simple_category_chart()
             
             with col2:
                 # Radar chart
                 st.markdown("#### Skills Radar")
-                fig_radar = plot_skill_categories(st.session_state.skills_data)
-                st.plotly_chart(fig_radar, use_container_width=True, key="skills_radar")
+                try:
+                    fig_radar = plot_skill_categories(st.session_state.skills_data)
+                    st.plotly_chart(fig_radar, use_container_width=True, key="skills_radar")
+                except Exception as e:
+                    st.error(f"Radar chart error: {str(e)}")
+                    self.display_simple_radar_chart()
             
         with viz_tab3:
             st.markdown(f"### 🔥 {self.get_translated_text('skill_confidence_heatmap')}")
-            fig_heatmap = create_confidence_heatmap(st.session_state.skills_graph)
-            st.plotly_chart(fig_heatmap, use_container_width=True, key="confidence_heatmap")
+            try:
+                fig_heatmap = create_confidence_heatmap(st.session_state.skills_graph)
+                st.plotly_chart(fig_heatmap, use_container_width=True, key="confidence_heatmap")
+            except Exception as e:
+                st.error(f"Heatmap error: {str(e)}")
+                self.display_simple_heatmap()
             
             # Skills metrics
-            metrics = calculate_skill_metrics(st.session_state.skills_graph)
+            try:
+                metrics = calculate_skill_metrics(st.session_state.skills_graph)
+            except:
+                metrics = {"total_skills": 0, "avg_confidence": 0, "total_relationships": 0, "connectivity_score": 0}
+            
             st.markdown(f"### 📈 {self.get_translated_text('skills_metrics')}")
             col1, col2, col3, col4 = st.columns(4)
             with col1:
@@ -1361,6 +1627,7 @@ Skills: Python, React, SQL, Teamwork, Communication""",
                             "related_skills": node.related_skills if hasattr(node, 'related_skills') else []
                         } for name, node in st.session_state.skills_graph.items()
                     },
+                    "candidate_skills": st.session_state.candidate_skills,
                     "metrics": metrics
                 }
                 st.download_button(
@@ -1370,6 +1637,134 @@ Skills: Python, React, SQL, Teamwork, Communication""",
                     mime="application/json",
                     key="download_skills_json"
                 )
+    
+    def display_simple_skills_visualization(self):
+        """Display a simple skills visualization when detailed graph is not available"""
+        if not st.session_state.candidate_skills:
+            st.info("No skills data available for visualization")
+            return
+        
+        # Create a simple bar chart of skills by confidence
+        skills = [skill[0] for skill in st.session_state.candidate_skills]
+        confidences = [skill[2] for skill in st.session_state.candidate_skills]
+        categories = [skill[1] for skill in st.session_state.candidate_skills]
+        
+        fig = go.Figure()
+        
+        # Add bars for each category with different colors
+        tech_indices = [i for i, cat in enumerate(categories) if cat == 'technical']
+        soft_indices = [i for i, cat in enumerate(categories) if cat == 'soft']
+        
+        if tech_indices:
+            fig.add_trace(go.Bar(
+                x=[skills[i] for i in tech_indices],
+                y=[confidences[i] for i in tech_indices],
+                name='Technical Skills',
+                marker_color='blue'
+            ))
+        
+        if soft_indices:
+            fig.add_trace(go.Bar(
+                x=[skills[i] for i in soft_indices],
+                y=[confidences[i] for i in soft_indices],
+                name='Soft Skills',
+                marker_color='green'
+            ))
+        
+        fig.update_layout(
+            title="Skills Confidence Levels",
+            xaxis_title="Skills",
+            yaxis_title="Confidence Level",
+            barmode='group',
+            height=400
+        )
+        
+        st.plotly_chart(fig, use_container_width=True)
+    
+    def display_simple_category_chart(self):
+        """Display a simple category chart"""
+        if not st.session_state.candidate_skills:
+            return
+        
+        # Count skills by category
+        category_count = {}
+        for skill, category, confidence in st.session_state.candidate_skills:
+            category_count[category] = category_count.get(category, 0) + 1
+        
+        fig = go.Figure(go.Pie(
+            labels=list(category_count.keys()),
+            values=list(category_count.values()),
+            hole=0.3
+        ))
+        
+        fig.update_layout(
+            title="Skills by Category",
+            height=400
+        )
+        
+        st.plotly_chart(fig, use_container_width=True)
+    
+    def display_simple_radar_chart(self):
+        """Display a simple radar chart"""
+        if not st.session_state.candidate_skills:
+            return
+        
+        # Calculate average confidence by category
+        category_confidences = {}
+        category_counts = {}
+        
+        for skill, category, confidence in st.session_state.candidate_skills:
+            if category not in category_confidences:
+                category_confidences[category] = 0
+                category_counts[category] = 0
+            category_confidences[category] += confidence
+            category_counts[category] += 1
+        
+        avg_confidences = {cat: conf/category_counts[cat] for cat, conf in category_confidences.items()}
+        
+        fig = go.Figure()
+        
+        fig.add_trace(go.Scatterpolar(
+            r=list(avg_confidences.values()),
+            theta=list(avg_confidences.keys()),
+            fill='toself',
+            name='Average Confidence'
+        ))
+        
+        fig.update_layout(
+            polar=dict(
+                radialaxis=dict(
+                    visible=True,
+                    range=[0, 1]
+                )),
+            showlegend=False,
+            title="Average Confidence by Category",
+            height=400
+        )
+        
+        st.plotly_chart(fig, use_container_width=True)
+    
+    def display_simple_heatmap(self):
+        """Display a simple heatmap"""
+        if not st.session_state.candidate_skills:
+            return
+        
+        skills = [skill[0] for skill in st.session_state.candidate_skills]
+        confidences = [[skill[2]] for skill in st.session_state.candidate_skills]
+        
+        fig = go.Figure(go.Heatmap(
+            z=confidences,
+            x=['Confidence'],
+            y=skills,
+            colorscale='Viridis'
+        ))
+        
+        fig.update_layout(
+            title="Skills Confidence Heatmap",
+            height=400
+        )
+        
+        st.plotly_chart(fig, use_container_width=True)
 
     def interview_section(self):
         """Display interview questions and answers with navigation"""
@@ -1437,20 +1832,78 @@ Skills: Python, React, SQL, Teamwork, Communication""",
                 </div>
                 """, unsafe_allow_html=True)
             
-            # Answer input area
+            # Answer input area with Audio/Video option
             st.markdown(f"**{self.get_translated_text('your_answer')}**")
-            answer = st.text_area(
-                " ",
-                value=st.session_state.candidate_answers[current_index],
-                height=180,
-                placeholder="Share your experience and thoughts here... You can answer in any language.",
-                key=f"answer_{current_index}",
-                label_visibility="collapsed"
-            )
             
-            # Update answer in session state as user types
-            if answer != st.session_state.candidate_answers[current_index]:
-                st.session_state.candidate_answers[current_index] = answer
+            # NEW: Audio/Video recording option
+            if st.session_state.audio_video_enabled:
+                av_col1, av_col2 = st.columns([3, 1])
+                
+                with av_col1:
+                    answer = st.text_area(
+                        " ",
+                        value=st.session_state.candidate_answers[current_index],
+                        height=180,
+                        placeholder="Share your experience and thoughts here... You can answer in any language.",
+                        key=f"answer_{current_index}",
+                        label_visibility="collapsed"
+                    )
+                
+                with av_col2:
+                    st.markdown("<div class='av-controls'>", unsafe_allow_html=True)
+                    st.write("🎤🎥 Audio/Video Options")
+                    
+                    recording_mode = st.radio(
+                        "Recording Mode:",
+                        ["Text Only", "Record Audio/Video"],
+                        horizontal=True,
+                        key=f"rec_mode_{current_index}"
+                    )
+                    
+                    if recording_mode == "Record Audio/Video":
+                        rec_col1, rec_col2 = st.columns(2)
+                        
+                        with rec_col1:
+                            if st.button("🎤 Start Recording", type="primary", key=f"record_{current_index}") and not st.session_state.recording_in_progress:
+                                st.session_state.recording_in_progress = True
+                                with st.spinner("🎥 Recording in progress..."):
+                                    # Use real-time recording for better transcription
+                                    transcription, audio_path, video_path = self.realtime_av_processor.start_realtime_recording(duration=30)
+                                    
+                                    if transcription and transcription.strip():
+                                        st.session_state.candidate_answers[current_index] = transcription
+                                        st.session_state.last_audio_path = audio_path
+                                        st.session_state.last_video_path = video_path
+                                        st.success(f"✅ Transcription: {transcription}")
+                                    else:
+                                        st.warning("⚠️ No speech detected. Please try again.")
+                                
+                                st.session_state.recording_in_progress = False
+                                st.rerun()
+                        
+                        with rec_col2:
+                            if st.session_state.recording_in_progress:
+                                st.markdown("<div class='recording-active'>🔴 Recording...</div>", unsafe_allow_html=True)
+                    
+                    st.markdown("</div>", unsafe_allow_html=True)
+                
+                # Update answer in session state as user types
+                if answer != st.session_state.candidate_answers[current_index]:
+                    st.session_state.candidate_answers[current_index] = answer
+            else:
+                # Standard text input without audio/video
+                answer = st.text_area(
+                    " ",
+                    value=st.session_state.candidate_answers[current_index],
+                    height=180,
+                    placeholder="Share your experience and thoughts here... You can answer in any language.",
+                    key=f"answer_{current_index}",
+                    label_visibility="collapsed"
+                )
+                
+                # Update answer in session state as user types
+                if answer != st.session_state.candidate_answers[current_index]:
+                    st.session_state.candidate_answers[current_index] = answer
             
             # Display AI analysis of previous answer if available
             if (current_index > 0 and 

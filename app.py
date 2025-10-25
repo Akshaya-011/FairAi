@@ -1,4 +1,11 @@
 import streamlit as st
+st.set_page_config(
+    page_title="FairAI Hire - Bias-Free Interviews",
+    page_icon="🎤",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
 import os
 import sys
 from datetime import datetime
@@ -14,12 +21,7 @@ import networkx as nx
 from langdetect import detect, DetectorFactory
 import aiohttp
 
-st.set_page_config(
-    page_title="FairAI Hire - Bias-Free Interviews",
-    page_icon="🎤",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
+
 
 # Add the utils directory to Python path
 sys.path.append(os.path.join(os.path.dirname(__file__), 'utils'))

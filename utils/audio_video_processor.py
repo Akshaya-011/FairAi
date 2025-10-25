@@ -12,7 +12,8 @@ from datetime import datetime
 import time
 import cv2
 import wave
-import pyaudio
+import sounddevice as sd
+import soundfile as sf
 
 class RealtimeAudioVideoProcessor:
     """Real-time audio/video processor with live transcription"""
@@ -49,35 +50,18 @@ class RealtimeAudioVideoProcessor:
                 fourcc = cv2.VideoWriter_fourcc(*'XVID')
                 out = cv2.VideoWriter(video_path, fourcc, 20.0, (640, 480))
 
-            # Initialize audio
-            p = pyaudio.PyAudio()
-            FORMAT = pyaudio.paInt16
-            CHANNELS = 1
-            RATE = 16000
-            CHUNK = 1024
-            
-            stream = p.open(
-                format=FORMAT,
-                channels=CHANNELS,
-                rate=RATE,
-                input=True,
-                frames_per_buffer=CHUNK
-            )
+            # Audio recording parameters
+            SAMPLE_RATE = 16000
+            CHUNK_DURATION = 3  # seconds per transcription chunk
+            CHUNK_SIZE = int(SAMPLE_RATE * CHUNK_DURATION)
             
             # Storage
-            audio_frames = []
+            all_audio_data = []
             transcription_parts = []
-            
-            # Setup recognizer
-            recognizer = sr.Recognizer()
-            recognizer.energy_threshold = 300
-            recognizer.dynamic_energy_threshold = True
-            recognizer.pause_threshold = 0.8
+            current_audio_chunk = []
             
             start_time = time.time()
-            audio_buffer = []
             last_transcription_time = start_time
-            buffer_duration = 3
             
             st.info(f"🎤 **Live Recording Started** - Speak clearly! ({duration}s)")
             
@@ -87,76 +71,89 @@ class RealtimeAudioVideoProcessor:
             video_placeholder = st.empty()
             transcription_display = st.empty()
             
-            while (time.time() - start_time) < duration:
-                elapsed = time.time() - start_time
-                progress = elapsed / duration
-                progress_bar.progress(min(progress, 1.0))
-                remaining = duration - elapsed
-                
-                # Display status
-                current_words = len(' '.join(transcription_parts).split())
-                status_text.text(f"⏺️ Recording... {remaining:.1f}s remaining | Words: {current_words}")
-                
-                # Capture audio
-                try:
-                    audio_chunk = stream.read(CHUNK, exception_on_overflow=False)
-                    audio_frames.append(audio_chunk)
-                    audio_buffer.append(audio_chunk)
-                except Exception as e:
-                    st.warning(f"Audio read error: {e}")
-                    continue
-                
-                # Capture video if camera available
-                if camera_available:
-                    ret, frame = cap.read()
-                    if ret:
-                        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                        video_placeholder.image(rgb_frame, channels="RGB", use_container_width=True)
-                        out.write(frame)
-                
-                # Real-time transcription
-                current_time = time.time()
-                if (current_time - last_transcription_time) >= buffer_duration and len(audio_buffer) > 0:
-                    try:
-                        buffer_audio = b''.join(audio_buffer)
-                        audio_data = sr.AudioData(buffer_audio, RATE, p.get_sample_size(FORMAT))
-                        text = recognizer.recognize_google(audio_data, language='en-US')
-                        
-                        if text and text.strip():
-                            transcription_parts.append(text)
-                            full_text = " ".join(transcription_parts)
-                            transcription_display.success(f"📝 **Live Transcription:** {full_text}")
-                    except sr.UnknownValueError:
-                        pass  # No speech detected
-                    except sr.RequestError as e:
-                        st.warning(f"⚠️ Speech service error: {e}")
-                    except Exception as e:
-                        st.warning(f"Transcription error: {e}")
-                    
-                    audio_buffer = []
-                    last_transcription_time = current_time
-                
-                time.sleep(0.01)
+            def audio_callback(indata, frames, time, status):
+                """Callback for real-time audio input"""
+                if status:
+                    st.warning(f"Audio status: {status}")
+                current_audio_chunk.extend(indata.copy())
+                all_audio_data.extend(indata.copy())
             
-            # Final transcription
-            if len(audio_buffer) > 0:
+            # Start audio stream
+            stream = sd.InputStream(
+                callback=audio_callback,
+                channels=1,
+                samplerate=SAMPLE_RATE,
+                blocksize=1024
+            )
+            
+            with stream:
+                while (time.time() - start_time) < duration:
+                    elapsed = time.time() - start_time
+                    progress = elapsed / duration
+                    progress_bar.progress(min(progress, 1.0))
+                    remaining = duration - elapsed
+                    
+                    # Display status
+                    current_words = len(' '.join(transcription_parts).split())
+                    status_text.text(f"⏺️ Recording... {remaining:.1f}s remaining | Words: {current_words}")
+                    
+                    # Capture video if camera available
+                    if camera_available:
+                        ret, frame = cap.read()
+                        if ret:
+                            rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                            video_placeholder.image(rgb_frame, channels="RGB", use_container_width=True)
+                            out.write(frame)
+                    
+                    # Real-time transcription
+                    current_time = time.time()
+                    if (current_time - last_transcription_time) >= CHUNK_DURATION and len(current_audio_chunk) > 0:
+                        try:
+                            # Convert to audio data for speech recognition
+                            audio_array = np.array(current_audio_chunk, dtype=np.float32)
+                            audio_data = sr.AudioData(
+                                (audio_array * 32767).astype(np.int16).tobytes(),
+                                SAMPLE_RATE,
+                                2  # sample width in bytes
+                            )
+                            
+                            text = self.recognizer.recognize_google(audio_data, language='en-US')
+                            
+                            if text and text.strip():
+                                transcription_parts.append(text)
+                                full_text = " ".join(transcription_parts)
+                                transcription_display.success(f"📝 **Live Transcription:** {full_text}")
+                        except sr.UnknownValueError:
+                            pass  # No speech detected
+                        except sr.RequestError as e:
+                            st.warning(f"⚠️ Speech service error: {e}")
+                        except Exception as e:
+                            st.warning(f"Transcription error: {e}")
+                        
+                        current_audio_chunk = []
+                        last_transcription_time = current_time
+                    
+                    time.sleep(0.1)
+            
+            # Final transcription of remaining audio
+            if len(current_audio_chunk) > 0:
                 try:
-                    buffer_audio = b''.join(audio_buffer)
-                    audio_data = sr.AudioData(buffer_audio, RATE, p.get_sample_size(FORMAT))
-                    text = recognizer.recognize_google(audio_data, language='en-US')
+                    audio_array = np.array(current_audio_chunk, dtype=np.float32)
+                    audio_data = sr.AudioData(
+                        (audio_array * 32767).astype(np.int16).tobytes(),
+                        SAMPLE_RATE,
+                        2
+                    )
+                    text = self.recognizer.recognize_google(audio_data, language='en-US')
                     if text and text.strip():
                         transcription_parts.append(text)
                 except:
                     pass
             
             # Save complete audio file
-            if len(audio_frames) > 0:
-                wf = wave.open(audio_path, 'wb')
-                wf.setnchannels(CHANNELS)
-                wf.setsampwidth(p.get_sample_size(FORMAT))
-                wf.setframerate(RATE)
-                wf.writeframes(b''.join(audio_frames))
-                wf.close()
+            if len(all_audio_data) > 0:
+                audio_array = np.array(all_audio_data, dtype=np.float32)
+                sf.write(audio_path, audio_array, SAMPLE_RATE)
             
             progress_bar.progress(1.0)
             status_text.text("✅ Recording complete!")
@@ -174,8 +171,8 @@ class RealtimeAudioVideoProcessor:
                 try:
                     st.info("🔄 Processing complete audio file...")
                     with sr.AudioFile(audio_path) as source:
-                        audio = recognizer.record(source)
-                        final_transcription = recognizer.recognize_google(audio)
+                        audio = self.recognizer.record(source)
+                        final_transcription = self.recognizer.recognize_google(audio)
                         if final_transcription:
                             transcription_display.success(f"📝 **Transcription:** {final_transcription}")
                 except Exception as e:
@@ -196,15 +193,12 @@ class RealtimeAudioVideoProcessor:
         finally:
             # Cleanup in finally block to ensure it runs
             try:
-                if 'stream' in locals():
-                    stream.stop_stream()
-                    stream.close()
-                if 'p' in locals():
-                    p.terminate()
                 if 'cap' in locals():
                     cap.release()
                 if 'out' in locals():
                     out.release()
+                if 'stream' in locals():
+                    stream.close()
             except:
                 pass
     
@@ -218,29 +212,30 @@ class RealtimeAudioVideoProcessor:
             if file_size < 1000:
                 return {'success': False, 'error': 'Audio file too small'}
             
-            with wave.open(audio_path, 'rb') as wf:
-                sample_rate = wf.getframerate()
-                n_frames = wf.getnframes()
-                audio_signal = wf.readframes(n_frames)
-                audio_array = np.frombuffer(audio_signal, dtype=np.int16)
-                
-                duration = n_frames / sample_rate
-                if duration == 0:
-                    return {'success': False, 'error': 'Zero duration audio'}
-                
-                rms = np.sqrt(np.mean(audio_array.astype(np.float64)**2))
-                zcr = np.sum(np.abs(np.diff(np.signbit(audio_array)))) / len(audio_array)
-                
-                return {
-                    'success': True,
-                    'speaking_pace_wpm': float(min(200, max(80, zcr * 1000))),
-                    'pause_frequency': float(max(0.5, 5 - (zcr * 10))),
-                    'clarity_score': float(min(10, max(1, (rms / 1000) * 8))),
-                    'volume_level': float(rms),
-                    'audio_duration_seconds': float(duration),
-                    'sample_rate': sample_rate,
-                    'total_frames': n_frames
-                }
+            # Load audio using soundfile
+            audio_array, sample_rate = sf.read(audio_path)
+            
+            # Convert to mono if stereo
+            if len(audio_array.shape) > 1:
+                audio_array = np.mean(audio_array, axis=1)
+            
+            duration = len(audio_array) / sample_rate
+            if duration == 0:
+                return {'success': False, 'error': 'Zero duration audio'}
+            
+            rms = np.sqrt(np.mean(audio_array.astype(np.float64)**2))
+            zcr = np.sum(np.abs(np.diff(np.signbit(audio_array)))) / len(audio_array)
+            
+            return {
+                'success': True,
+                'speaking_pace_wpm': float(min(200, max(80, zcr * 1000))),
+                'pause_frequency': float(max(0.5, 5 - (zcr * 10))),
+                'clarity_score': float(min(10, max(1, (rms / 1000) * 8))),
+                'volume_level': float(rms),
+                'audio_duration_seconds': float(duration),
+                'sample_rate': sample_rate,
+                'total_frames': len(audio_array)
+            }
         except Exception as e:
             return {'success': False, 'error': str(e)}
     
@@ -347,23 +342,9 @@ class AudioVideoProcessor:
                 fourcc = cv2.VideoWriter_fourcc(*'XVID')
                 out = cv2.VideoWriter(video_path, fourcc, 20.0, (640, 480))
 
-            # Initialize audio
-            p = pyaudio.PyAudio()
-            FORMAT = pyaudio.paInt16
-            CHANNELS = 1
-            RATE = 44100
-            CHUNK = 1024
-            
-            stream = p.open(
-                format=FORMAT,
-                channels=CHANNELS,
-                rate=RATE,
-                input=True,
-                frames_per_buffer=CHUNK
-            )
-            
-            # Audio frames storage
-            audio_frames = []
+            # Audio recording parameters
+            SAMPLE_RATE = 16000
+            recorded_audio = []
             
             # Recording UI
             st.info(f"🎥 Recording for {duration} seconds... Speak now!")
@@ -371,53 +352,50 @@ class AudioVideoProcessor:
             status_text = st.empty()
             video_placeholder = st.empty()
             
+            def audio_callback(indata, frames, time, status):
+                """Callback for audio recording"""
+                if status:
+                    st.warning(f"Audio status: {status}")
+                recorded_audio.extend(indata.copy())
+            
             start_time = time.time()
             frame_count = 0
             
-            while (time.time() - start_time) < duration:
-                elapsed = time.time() - start_time
-                progress = elapsed / duration
-                progress_bar.progress(min(progress, 1.0))
-                remaining = duration - elapsed
-                status_text.text(f"⏺️ Recording... {remaining:.1f}s remaining")
-                
-                # Capture audio
-                try:
-                    audio_data = stream.read(CHUNK, exception_on_overflow=False)
-                    audio_frames.append(audio_data)
-                except Exception as e:
-                    st.warning(f"Audio capture error: {e}")
-                
-                # Capture video frame if camera available
-                if camera_available:
-                    ret, frame = cap.read()
-                    if ret:
-                        frame_count += 1
-                        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                        video_placeholder.image(rgb_frame, channels="RGB", use_container_width=True)
-                        out.write(frame)
-                
-                time.sleep(0.01)
+            # Start audio recording
+            with sd.InputStream(callback=audio_callback, channels=1, samplerate=SAMPLE_RATE):
+                while (time.time() - start_time) < duration:
+                    elapsed = time.time() - start_time
+                    progress = elapsed / duration
+                    progress_bar.progress(min(progress, 1.0))
+                    remaining = duration - elapsed
+                    status_text.text(f"⏺️ Recording... {remaining:.1f}s remaining")
+                    
+                    # Capture video frame if camera available
+                    if camera_available:
+                        ret, frame = cap.read()
+                        if ret:
+                            frame_count += 1
+                            rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                            video_placeholder.image(rgb_frame, channels="RGB", use_container_width=True)
+                            out.write(frame)
+                    
+                    time.sleep(0.1)
             
             # Verify we recorded something
-            if len(audio_frames) == 0:
+            if len(recorded_audio) == 0:
                 st.error("❌ No audio data captured!")
                 return None, None
             
-            # Save audio
-            wf = wave.open(audio_path, 'wb')
-            wf.setnchannels(CHANNELS)
-            wf.setsampwidth(p.get_sample_size(FORMAT))
-            wf.setframerate(RATE)
-            wf.writeframes(b''.join(audio_frames))
-            wf.close()
+            # Save audio file
+            audio_array = np.array(recorded_audio, dtype=np.float32)
+            sf.write(audio_path, audio_array, SAMPLE_RATE)
             
             progress_bar.progress(1.0)
             status_text.text("✅ Recording complete!")
             
             # Verify files
             if os.path.exists(audio_path):
-                st.success(f"✅ Audio: {os.path.getsize(audio_path) / 1024:.1f} KB, {len(audio_frames)} frames")
+                st.success(f"✅ Audio: {os.path.getsize(audio_path) / 1024:.1f} KB, {len(recorded_audio)} samples")
             if camera_available and os.path.exists(video_path):
                 st.success(f"✅ Video: {os.path.getsize(video_path) / 1024:.1f} KB, {frame_count} frames")
             
@@ -433,11 +411,6 @@ class AudioVideoProcessor:
         finally:
             # Cleanup
             try:
-                if 'stream' in locals():
-                    stream.stop_stream()
-                    stream.close()
-                if 'p' in locals():
-                    p.terminate()
                 if 'cap' in locals():
                     cap.release()
                 if 'out' in locals():
@@ -498,39 +471,33 @@ class AudioVideoProcessor:
             if file_size < 1000:
                 return {'success': False, 'error': 'No audio data available'}
             
-            with wave.open(audio_path, 'rb') as wf:
-                sample_width = wf.getsampwidth()
-                sample_rate = wf.getframerate()
-                n_frames = wf.getnframes()
-                audio_signal = wf.readframes(n_frames)
-                
-                if sample_width == 2:
-                    audio_array = np.frombuffer(audio_signal, dtype=np.int16)
-                elif sample_width == 4:
-                    audio_array = np.frombuffer(audio_signal, dtype=np.int32)
-                else:
-                    audio_array = np.frombuffer(audio_signal, dtype=np.int8)
-                
-                duration = n_frames / sample_rate
-                if duration == 0:
-                    return {'success': False, 'error': 'Zero duration audio'}
-                
-                rms = np.sqrt(np.mean(audio_array.astype(np.float64)**2))
-                zcr = np.sum(np.abs(np.diff(np.signbit(audio_array)))) / len(audio_array)
-                
-                speaking_pace = min(200, max(80, zcr * 1000))
-                clarity = min(10, max(1, (rms / 1000) * 8))
-                
-                return {
-                    'success': True,
-                    'speaking_pace_wpm': float(speaking_pace),
-                    'pause_frequency': float(max(0.5, 5 - (zcr * 10))),
-                    'clarity_score': float(clarity),
-                    'volume_level': float(rms),
-                    'audio_duration_seconds': float(duration),
-                    'sample_rate': sample_rate,
-                    'total_frames': n_frames
-                }
+            # Load audio using soundfile
+            audio_array, sample_rate = sf.read(audio_path)
+            
+            # Convert to mono if stereo
+            if len(audio_array.shape) > 1:
+                audio_array = np.mean(audio_array, axis=1)
+            
+            duration = len(audio_array) / sample_rate
+            if duration == 0:
+                return {'success': False, 'error': 'Zero duration audio'}
+            
+            rms = np.sqrt(np.mean(audio_array.astype(np.float64)**2))
+            zcr = np.sum(np.abs(np.diff(np.signbit(audio_array)))) / len(audio_array)
+            
+            speaking_pace = min(200, max(80, zcr * 1000))
+            clarity = min(10, max(1, (rms / 1000) * 8))
+            
+            return {
+                'success': True,
+                'speaking_pace_wpm': float(speaking_pace),
+                'pause_frequency': float(max(0.5, 5 - (zcr * 10))),
+                'clarity_score': float(clarity),
+                'volume_level': float(rms),
+                'audio_duration_seconds': float(duration),
+                'sample_rate': sample_rate,
+                'total_frames': len(audio_array)
+            }
             
         except Exception as e:
             return {'success': False, 'error': str(e)}

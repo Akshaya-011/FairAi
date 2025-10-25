@@ -1,11 +1,4 @@
 import streamlit as st
-st.set_page_config(
-    page_title="FairAI Hire - Bias-Free Interviews",
-    page_icon="🎤",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
-
 import os
 import sys
 from datetime import datetime

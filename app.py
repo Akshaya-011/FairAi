@@ -10,6 +10,14 @@ import plotly.graph_objects as go
 import json
 import io
 import base64
+import networkx as nx
+
+st.set_page_config(
+    page_title="FairAI Hire - Bias-Free Interviews",
+    page_icon="🎤",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
 
 # Add the utils directory to Python path
 sys.path.append(os.path.join(os.path.dirname(__file__), 'utils'))

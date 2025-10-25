@@ -1547,26 +1547,28 @@ Skills: Python, React, SQL, Teamwork, Communication""",
                     "Frequency": frequency,
                     "Related Skills": related_count
                 })
-            
-            if skills_list:
-                df_skills = pd.DataFrame(skills_list)
-                st.dataframe(df_skills, use_container_width=True, key="skills_dataframe")
-            else:
-                # Fallback to candidate skills
-                if st.session_state.candidate_skills:
-                    skills_list = []
-                    for skill, category, confidence in st.session_state.candidate_skills:
-                        skills_list.append({
-                            "Skill": skill,
-                            "Category": category,
-                            "Confidence": f"{confidence:.2f}",
-                            "Frequency": 1,
-                            "Related Skills": 0
-                        })
+            try:
+                if skills_list:
                     df_skills = pd.DataFrame(skills_list)
-                    st.dataframe(df_skills, use_container_width=True, key="skills_dataframe_fallback")
+                    st.dataframe(df_skills, use_container_width=True, key="skills_dataframe")
                 else:
-                    st.info("No skills data available")
+                    # Fallback to candidate skills
+                    if st.session_state.candidate_skills:
+                        skills_list = []
+                        for skill, category, confidence in st.session_state.candidate_skills:
+                            skills_list.append({
+                                "Skill": skill,
+                                "Category": category,
+                                "Confidence": f"{confidence:.2f}",
+                                "Frequency": 1,
+                                "Related Skills": 0
+                            })
+                        df_skills = pd.DataFrame(skills_list)
+                        st.dataframe(df_skills, use_container_width=True, key="skills_dataframe_fallback")
+                    else:
+                        st.info("No skills data available")
+            except Exception as e:
+                st.error(f"Skills table error: {str(e)}")
             
         with viz_tab2:
             st.markdown(f"### 📊 {self.get_translated_text('skills_category_analysis')}")

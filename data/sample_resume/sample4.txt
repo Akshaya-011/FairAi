@@ -1,0 +1,26 @@
+ALEX JOHNSON
+Project Manager
+Chicago, IL
+alex.johnson@email.com | (555) 123-4567
+
+SUMMARY
+Results-driven project manager with 6 years of leadership experience. Excellent problem-solving abilities and strong communication skills.
+
+SKILLS
+- Project Management: Agile, Scrum, Waterfall
+- Tools: JIRA, Trello, Microsoft Project, Slack
+- Leadership: Team Management, Conflict Resolution, Strategic Planning
+
+EXPERIENCE
+Senior Project Manager - Enterprise Solutions (3 years)
+- Led teams of 10+ members on complex projects
+- Implemented agile methodologies across departments
+- Resolved team conflicts and improved productivity
+
+Project Lead - Tech Innovations Inc. (3 years)
+- Managed software development projects
+- Coordinated between technical and non-technical teams
+- Mentored junior project managers
+
+EDUCATION
+MBA Business Administration - Northwestern University

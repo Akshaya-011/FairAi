@@ -1,0 +1,26 @@
+JOHN DOE
+Software Developer
+San Francisco, CA
+john.doe@email.com | (123) 456-7890
+
+SUMMARY
+Experienced software developer with 5 years in Python and JavaScript development. Strong background in web applications and team leadership.
+
+TECHNICAL SKILLS
+- Programming: Python, JavaScript, Java, SQL, HTML, CSS
+- Frameworks: React, Node.js, Django, Spring Boot
+- Tools: Git, Docker, AWS, Jenkins
+
+EXPERIENCE
+Senior Software Engineer - Tech Solutions Inc. (3 years)
+- Led team of 4 developers on web application projects
+- Developed REST APIs using Python and Django
+- Implemented CI/CD pipelines with Jenkins
+
+Software Developer - Code Masters LLC (2 years)
+- Built responsive web applications with React
+- Collaborated in agile team environment
+- Participated in code reviews and mentoring
+
+EDUCATION
+BS Computer Science - University of California

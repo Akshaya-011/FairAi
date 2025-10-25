@@ -410,6 +410,23 @@ class FairAIHireApp:
         """Get translated text for current language"""
         return self.language_support.translate_ui_text(text_key, st.session_state.selected_language)
     
+    def _create_fallback_skills_graph(self, skills_result):
+        """Create a fallback skills graph when parsing fails"""
+        fallback_graph = {}
+        
+        for i, (skill_name, category, confidence) in enumerate(skills_result):
+            class SkillNode:
+                def __init__(self, skill, category, confidence):
+                    self.skill = skill
+                    self.confidence = confidence
+                    self.category = category
+                    self.frequency = 1
+                    self.related_skills = []
+            
+            fallback_graph[skill_name] = SkillNode(skill_name, category, confidence)
+        
+        return fallback_graph
+
     def analyze_resume(self, resume_text):
         """Analyze resume and extract skills/experience"""
         try:
@@ -431,14 +448,48 @@ class FairAIHireApp:
             st.session_state.candidate_experience = experience_level
             st.session_state.resume_analyzed = True
             
-            # Build skills graph for visualization
-            st.session_state.skills_graph = build_skills_graph(resume_text)
-            st.session_state.skills_data = get_skills_by_category(st.session_state.skills_graph)
+            # Build skills graph for visualization - FIXED: Handle dictionary return
+            skills_graph = build_skills_graph(resume_text)
+            st.session_state.skills_graph = skills_graph
+            
+            # Convert to the expected format for visualization
+            if skills_graph and isinstance(skills_graph, dict):
+                # If it's already a dictionary with the right structure, use as-is
+                if all(isinstance(v, dict) and 'confidence' in v for v in skills_graph.values()):
+                    st.session_state.skills_data = get_skills_by_category(skills_graph)
+                else:
+                    # Convert to the expected format
+                    converted_graph = {}
+                    for skill_name, skill_data in skills_graph.items():
+                        if hasattr(skill_data, '__dict__'):
+                            # It's already an object with attributes
+                            converted_graph[skill_name] = skill_data
+                        else:
+                            # Create a mock object with the expected attributes
+                            class SkillNode:
+                                def __init__(self, name, data):
+                                    self.skill = name
+                                    self.confidence = data.get('confidence', 0.7) if isinstance(data, dict) else 0.7
+                                    self.category = data.get('category', 'technical') if isinstance(data, dict) else 'technical'
+                                    self.frequency = data.get('frequency', 1) if isinstance(data, dict) else 1
+                                    self.related_skills = data.get('related_skills', []) if isinstance(data, dict) else []
+                            
+                            converted_graph[skill_name] = SkillNode(skill_name, skill_data)
+                    
+                    st.session_state.skills_graph = converted_graph
+                    st.session_state.skills_data = get_skills_by_category(converted_graph)
+            else:
+                # Create fallback skills data
+                st.session_state.skills_graph = self._create_fallback_skills_graph(skills_result)
+                st.session_state.skills_data = get_skills_by_category(st.session_state.skills_graph)
             
             return True
         except Exception as e:
             st.error(f"Error analyzing resume: {str(e)}")
-            return False
+            # Create fallback skills data
+            st.session_state.skills_graph = self._create_fallback_skills_graph(st.session_state.candidate_skills)
+            st.session_state.skills_data = get_skills_by_category(st.session_state.skills_graph)
+            return True  # Continue anyway with fallback data
     
     def generate_interview_questions(self):
         """Generate personalized interview questions with bias checking and language adaptation"""
@@ -1234,12 +1285,29 @@ Skills: Python, React, SQL, Teamwork, Communication""",
             st.markdown("### 📋 Detected Skills Details")
             skills_list = []
             for skill_name, skill_node in st.session_state.skills_graph.items():
+                # Handle both object and dictionary formats
+                if hasattr(skill_node, 'confidence'):
+                    confidence = skill_node.confidence
+                    category = skill_node.category
+                    frequency = skill_node.frequency
+                    related_count = len(skill_node.related_skills) if hasattr(skill_node, 'related_skills') else 0
+                elif isinstance(skill_node, dict):
+                    confidence = skill_node.get('confidence', 0.5)
+                    category = skill_node.get('category', 'technical')
+                    frequency = skill_node.get('frequency', 1)
+                    related_count = len(skill_node.get('related_skills', []))
+                else:
+                    confidence = 0.5
+                    category = 'technical'
+                    frequency = 1
+                    related_count = 0
+                    
                 skills_list.append({
                     "Skill": skill_name,
-                    "Category": skill_node.category,
-                    "Confidence": f"{skill_node.confidence:.2f}",
-                    "Frequency": skill_node.frequency,
-                    "Related Skills": len(skill_node.related_skills)
+                    "Category": category,
+                    "Confidence": f"{confidence:.2f}",
+                    "Frequency": frequency,
+                    "Related Skills": related_count
                 })
             
             df_skills = pd.DataFrame(skills_list)
@@ -1286,11 +1354,11 @@ Skills: Python, React, SQL, Teamwork, Communication""",
                 skills_export = {
                     "skills_graph": {
                         name: {
-                            "skill": node.skill,
-                            "category": node.category,
-                            "confidence": node.confidence,
-                            "frequency": node.frequency,
-                            "related_skills": node.related_skills
+                            "skill": node.skill if hasattr(node, 'skill') else name,
+                            "category": node.category if hasattr(node, 'category') else 'technical',
+                            "confidence": node.confidence if hasattr(node, 'confidence') else 0.5,
+                            "frequency": node.frequency if hasattr(node, 'frequency') else 1,
+                            "related_skills": node.related_skills if hasattr(node, 'related_skills') else []
                         } for name, node in st.session_state.skills_graph.items()
                     },
                     "metrics": metrics

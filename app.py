@@ -10,7 +10,6 @@ import plotly.graph_objects as go
 import json
 import io
 import base64
-import time
 
 # Add the utils directory to Python path
 sys.path.append(os.path.join(os.path.dirname(__file__), 'utils'))
@@ -29,14 +28,12 @@ try:
     from utils.heatmap_generator import HeatmapGenerator, heatmap_generator
     # NEW: Import analytics engine
     from utils.analytics_engine import AnalyticsEngine
-    # NEW: Import audio-video processor and bias detector functions
-    from utils.audio_video_processor import AudioVideoProcessor
-    from utils.audio_video_processor import RealtimeAudioVideoProcessor
-    from utils.bias_detector import detect_audio_biases, detect_video_biases, analyze_communication_skills, generate_comprehensive_av_report
+    # NEW: Import language support
+    from utils.language_support import language_support
 except ImportError as e:
     st.error(f"Some modules not found: {e}")
     
-    # Fallback implementations
+    # Fallback implementations (keeping your existing fallbacks)
     class ResumeParser:
         def extract_skills(self, text):
             return [("python", "technical", 0.8), ("communication", "soft", 0.7)]
@@ -150,44 +147,26 @@ except ImportError as e:
                     'background_diversity': 'Medium'
                 }
             }
-
-    # NEW: Fallback implementations for audio-video
-    class AudioVideoProcessor:
-        def record_audio_video(self, duration=30):
-            return "temp_audio.wav", "temp_video.avi"
-        def speech_to_text(self, audio_path):
-            return "Audio transcription not available", False
-        def analyze_speech_patterns(self, audio_path):
-            return {'success': False, 'error': 'Audio analysis not available'}
-        def analyze_video_feed(self, video_path):
-            return {'success': False, 'error': 'Video analysis not available'}
     
-    class RealtimeAudioVideoProcessor:
-        def start_realtime_recording(self, duration=30):
-            return "Transcription not available", "temp_audio.wav", "temp_video.avi"
-        def analyze_speech_patterns(self, audio_path):
-            return {'success': False, 'error': 'Audio analysis not available'}
-        def analyze_video_feed(self, video_path):
-            return {'success': False, 'error': 'Video analysis not available'}
-    
-    # NEW: Fallback audio/video bias detection
-    def detect_audio_biases(speech_analysis):
-        return {'biases_detected': [], 'severity': 'None', 'recommendations': ['Audio analysis unavailable']}
-    
-    def detect_video_biases(video_analysis):
-        return {'biases_detected': [], 'severity': 'None', 'recommendations': ['Video analysis unavailable']}
-    
-    def analyze_communication_skills(speech_analysis, video_analysis):
-        return {'audio_insights': [], 'video_insights': [], 'overall_assessment': 'Audio/Video analysis not available'}
-    
-    def generate_comprehensive_av_report(speech_analysis, video_analysis):
-        return {'overall_assessment': {'total_bias_instances': 0, 'overall_severity': 'None'}}
+    # Language support fallback
+    class LanguageSupport:
+        def __init__(self):
+            self.supported_languages = ['English', 'Spanish', 'French', 'Telugu', 'Hindi']
+        
+        def detect_language(self, text):
+            return 'English'
+        
+        def translate_ui_text(self, text_key, target_language):
+            return text_key
+        
+        def adapt_question_for_language(self, question, target_language, original_language='English'):
+            return question
     
     bias_heatmap = BiasHeatmapGenerator()
     difficulty_manager = DifficultyManager()
     heatmap_generator = HeatmapGenerator()
     analytics_engine = AnalyticsEngine()
-    av_processor = AudioVideoProcessor()
+    language_support = LanguageSupport()
     
     def detect_bias_in_text(text): 
         return {"bias_types": [], "severity": "Low", "confidence": 0.0}
@@ -235,10 +214,7 @@ class FairAIHireApp:
             self.difficulty_manager = difficulty_manager
             self.heatmap_generator = heatmap_generator
             self.analytics_engine = AnalyticsEngine()
-            # NEW: Initialize audio-video processor
-            self.av_processor = av_processor
-            # NEW: Initialize real-time AV processor
-            self.rt_av_processor = None
+            self.language_support = language_support
         except Exception as e:
             st.error(f"Error initializing: {e}")
             self.parser = ResumeParser()
@@ -249,8 +225,7 @@ class FairAIHireApp:
             self.difficulty_manager = difficulty_manager
             self.heatmap_generator = heatmap_generator
             self.analytics_engine = AnalyticsEngine()
-            self.av_processor = AudioVideoProcessor()
-            self.rt_av_processor = None
+            self.language_support = language_support
         
         self.setup_page()
     
@@ -373,29 +348,12 @@ class FairAIHireApp:
         p, div, span, h1, h2, h3, h4, h5, h6 {
             color: white !important;
         }
-        
-        /* NEW: Audio/Video specific styles */
-        .av-recording-box {
+        .language-selector {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            padding: 1.5rem;
-            border-radius: 10px;
-            margin: 1rem 0;
-            border-left: 6px solid #ff6b6b;
-        }
-        .av-preview-box {
-            background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);
-            color: white;
             padding: 1rem;
-            border-radius: 8px;
-            margin: 0.5rem 0;
-        }
-        .av-analysis-section {
-            background-color: #2d2d2d;
-            padding: 1.5rem;
             border-radius: 10px;
             margin: 1rem 0;
-            border: 1px solid #555;
+            color: white;
         }
         </style>
         """, unsafe_allow_html=True)
@@ -431,15 +389,10 @@ class FairAIHireApp:
             'analytics_data': {},
             'comparative_data': {},
             'candidate_pool': [],
-            # NEW: Audio/Video session state
-            'av_recorded': False,
-            'audio_path': None,
-            'video_path': None,
-            'fallback_to_text': False,
-            'start_recording': False,
-            'recording_question_index': None,
-            'auto_analyze': False,
-            'response_type': 'text'  # 'text' or 'audio_video'
+            # NEW: Language support
+            'selected_language': 'English',
+            'auto_detected_language': None,
+            'resume_language_detected': False
         }
         
         for key, value in defaults.items():
@@ -449,13 +402,28 @@ class FairAIHireApp:
     def reset_interview(self):
         """Reset the interview session"""
         for key in list(st.session_state.keys()):
-            if key != 'ai_enabled':  # Keep AI setting
+            if key not in ['ai_enabled', 'selected_language']:  # Keep AI and language settings
                 del st.session_state[key]
         self.initialize_session_state()
+    
+    def get_translated_text(self, text_key):
+        """Get translated text for current language"""
+        return self.language_support.translate_ui_text(text_key, st.session_state.selected_language)
     
     def analyze_resume(self, resume_text):
         """Analyze resume and extract skills/experience"""
         try:
+            # Auto-detect language from resume if not already detected
+            if not st.session_state.resume_language_detected:
+                detected_lang = self.language_support.detect_language(resume_text)
+                st.session_state.auto_detected_language = detected_lang
+                st.session_state.resume_language_detected = True
+                
+                # Auto-switch to detected language if different from current
+                if detected_lang != st.session_state.selected_language:
+                    st.session_state.selected_language = detected_lang
+                    st.success(f"🌍 {self.get_translated_text('auto_detect')}: {detected_lang}")
+            
             skills_result = self.parser.extract_skills(resume_text)
             experience_level = self.parser.parse_experience(resume_text)
             
@@ -473,18 +441,27 @@ class FairAIHireApp:
             return False
     
     def generate_interview_questions(self):
-        """Generate personalized interview questions with bias checking"""
+        """Generate personalized interview questions with bias checking and language adaptation"""
         try:
             questions = self.question_gen.generate_questions(
                 st.session_state.candidate_skills,
                 st.session_state.candidate_experience
             )
             
+            # Adapt questions to selected language
+            adapted_questions = []
+            for question in questions:
+                adapted_question = self.language_support.adapt_question_for_language(
+                    question, 
+                    st.session_state.selected_language
+                )
+                adapted_questions.append(adapted_question)
+            
             # NEW: Check questions for potential bias before displaying
             checked_questions = []
             bias_warnings = []
             
-            for i, question in enumerate(questions):
+            for i, question in enumerate(adapted_questions):
                 try:
                     bias_check = analyze_question_fairness(question)
                     # FIXED: Use .get() with default value to avoid KeyError
@@ -515,13 +492,13 @@ class FairAIHireApp:
             # Show bias warnings if any
             if bias_warnings and st.session_state.ai_enabled:
                 with st.container():
-                    st.error("🚨 **Bias Alert in Generated Questions:**")
+                    st.error(f"🚨 {self.get_translated_text('bias_alerts')}:")
                     for warning in bias_warnings:
                         st.write(f"• {warning}")
             
             # Generate AI-enhanced questions if enabled
             if st.session_state.ai_enabled and self.ai_enhancer.available:
-                with st.spinner("🤖 Enhancing questions with AI..."):
+                with st.spinner(f"🤖 {self.get_translated_text('ai_enhancement')}..."):
                     st.session_state.ai_enhanced_questions = []
                     for i, question in enumerate(questions):
                         enhanced = self.ai_enhancer.improve_question(
@@ -534,470 +511,15 @@ class FairAIHireApp:
         except Exception as e:
             st.error(f"Error generating questions: {str(e)}")
             return False
-
-    def realtime_audio_video_interface(self, question_index):
-        """
-        Real-time audio/video interface with live transcription
-        Add this method to your FairAIHireApp class
-        """
-        st.markdown("---")
-        st.subheader("🎙️ Real-Time Audio/Video Response")
-        
-        # State management (unique per question)
-        state_key = f"realtime_state_{question_index}"
-        if state_key not in st.session_state:
-            st.session_state[state_key] = {
-                'recorded': False,
-                'transcription': None,
-                'audio_path': None,
-                'video_path': None,
-                'speech_analysis': None,
-                'video_analysis': None
-            }
-        
-        state = st.session_state[state_key]
-        
-        # Info
-        with st.expander("ℹ️ Real-Time Recording", expanded=not state['recorded']):
-            st.info("""
-            **How it works:**
-            - 🎤 Speak naturally - transcription appears **live** as you speak
-            - 📹 Camera shows live preview
-            - ⚡ See your words instantly (updates every 3 seconds)
-            - 🔄 Complete transcription ready at the end
-            - 📊 Automatic speech and engagement analysis
-            """)
-            st.warning("🌐 **Requires internet** for Google Speech Recognition")
-        
-        col1, col2 = st.columns([1, 1])
-        
-        with col1:
-            st.markdown("#### ⚙️ Settings")
-            duration = st.slider(
-                "Duration (seconds)", 
-                15, 60, 30,
-                key=f"rt_duration_{question_index}",
-                disabled=state['recorded'],
-                help="How long to record your response"
-            )
-            
-            if not state['recorded']:
-                if st.button(
-                    "🎤 Start Real-Time Recording",
-                    use_container_width=True,
-                    type="primary",
-                    key=f"rt_start_{question_index}"
-                ):
-                    # Initialize processor if needed
-                    if not hasattr(self, 'rt_av_processor') or self.rt_av_processor is None:
-                        try:
-                            from utils.audio_video_processor import RealtimeAudioVideoProcessor
-                            self.rt_av_processor = RealtimeAudioVideoProcessor()
-                        except ImportError:
-                            st.error("❌ Real-time audio/video processor not available")
-                            return None
-                    
-                    # Start real-time recording
-                    transcription, audio_path, video_path = self.rt_av_processor.start_realtime_recording(
-                        duration=duration
-                    )
-                    
-                    if transcription and transcription.strip():
-                        state['transcription'] = transcription
-                        state['audio_path'] = audio_path
-                        state['video_path'] = video_path
-                        state['recorded'] = True
-                        
-                        # Analyze in background
-                        with st.spinner("📊 Analyzing recording..."):
-                            if audio_path and os.path.exists(audio_path):
-                                state['speech_analysis'] = self.rt_av_processor.analyze_speech_patterns(audio_path)
-                            if video_path and os.path.exists(video_path):
-                                state['video_analysis'] = self.rt_av_processor.analyze_video_feed(video_path)
-                        
-                        st.success("✅ Recording and analysis complete!")
-                        st.rerun()
-                    else:
-                        st.error("❌ No speech detected. Please try again and speak more clearly.")
-            else:
-                st.success("✅ Recording complete!")
-                if st.button(
-                    "🔄 Record Again",
-                    use_container_width=True,
-                    key=f"rt_again_{question_index}"
-                ):
-                    # Cleanup files
-                    if state['audio_path'] and os.path.exists(state['audio_path']):
-                        try:
-                            os.remove(state['audio_path'])
-                        except:
-                            pass
-                    if state['video_path'] and os.path.exists(state['video_path']):
-                        try:
-                            os.remove(state['video_path'])
-                        except:
-                            pass
-                    
-                    # Reset state
-                    st.session_state[state_key] = {
-                        'recorded': False,
-                        'transcription': None,
-                        'audio_path': None,
-                        'video_path': None,
-                        'speech_analysis': None,
-                        'video_analysis': None
-                    }
-                    st.rerun()
-        
-        with col2:
-            st.markdown("#### 📊 Status")
-            if state['recorded']:
-                st.success("✅ **Recording Complete**")
-                words = len(state['transcription'].split()) if state['transcription'] else 0
-                st.metric("Words Captured", words)
-                if words < 10:
-                    st.warning("⚠️ Response seems short. Consider recording again.")
-            else:
-                st.info("⏳ **Ready to Record**")
-                st.write("Click button to start")
-        
-        # Display results
-        if state['recorded'] and state['transcription']:
-            st.markdown("---")
-            st.subheader("📝 Your Transcribed Answer")
-            st.success(state['transcription'])
-            
-            # Speech metrics
-            if state['speech_analysis'] and state['speech_analysis'].get('success'):
-                st.markdown("#### 🎤 Speech Analysis")
-                speech = state['speech_analysis']
-                col1, col2, col3 = st.columns(3)
-                with col1:
-                    st.metric("Speaking Pace", f"{speech['speaking_pace_wpm']:.0f} WPM")
-                with col2:
-                    st.metric("Clarity", f"{speech['clarity_score']:.1f}/10")
-                with col3:
-                    st.metric("Duration", f"{speech['audio_duration_seconds']:.1f}s")
-            
-            # Video metrics
-            if state['video_analysis'] and state['video_analysis'].get('success'):
-                st.markdown("#### 📹 Engagement Analysis")
-                video = state['video_analysis']
-                col1, col2, col3 = st.columns(3)
-                with col1:
-                    st.metric("Face Detection", f"{video['face_detection_ratio']*100:.0f}%")
-                with col2:
-                    st.metric("Engagement", f"{video['engagement_score']*100:.0f}%")
-                with col3:
-                    st.metric("Expression", video['facial_expression'].title())
-            
-            # Media preview
-            with st.expander("🎬 Review Recording"):
-                col1, col2 = st.columns(2)
-                with col1:
-                    if state['video_path'] and os.path.exists(state['video_path']):
-                        st.markdown("**📹 Video Recording:**")
-                        st.video(state['video_path'])
-                with col2:
-                    if state['audio_path'] and os.path.exists(state['audio_path']):
-                        st.markdown("**🔊 Audio Recording:**")
-                        st.audio(state['audio_path'])
-            
-            # Return transcription
-            return state['transcription']
-        
-        return None
-
-    def audio_video_interface(self, question_index):
-        """
-        Audio/Video recording interface with live camera preview
-        """
-        st.markdown("---")
-        st.subheader("🎥 Audio/Video Response")
-        
-        # Information section
-        with st.expander("ℹ️ How to use audio/video response", expanded=True):
-            st.info("""
-            **Instructions:**
-            1. Click 'Start Recording' - camera will open with live preview
-            2. Speak clearly while looking at the camera
-            3. Recording will automatically stop after selected duration
-            4. Your speech will be converted to text automatically
-            5. Review analysis and submit your response
-            """)
-        
-        st.warning("🔒 **Privacy Note:** Audio/video is processed locally and never stored on servers.")
-        
-        # Create main interface
-        col1, col2 = st.columns([1, 1])
-        
-        with col1:
-            st.markdown("#### ⚙️ Recording Settings")
-            recording_duration = st.slider(
-                "Recording Duration (seconds)", 
-                15, 60, 30, 
-                key=f"duration_{question_index}",
-                help="How long to record your response"
-            )
-            
-            # Recording button
-            if st.button(
-                "🎤 Start Recording", 
-                use_container_width=True, 
-                key=f"record_{question_index}",
-                type="primary"
-            ):
-                # Set flag to start recording
-                st.session_state.start_recording = True
-                st.session_state.recording_question_index = question_index
-        
-        with col2:
-            st.markdown("#### 📊 Status")
-            if st.session_state.get('av_recorded', False):
-                st.success("✅ **Recording Complete!**")
-                st.write("Your response has been recorded and analyzed.")
-            else:
-                st.info("⏳ **Ready to Record**")
-                st.write("Click the button to start recording.")
-        
-        # Handle recording when flag is set
-        if (st.session_state.get('start_recording', False) and 
-            st.session_state.get('recording_question_index') == question_index):
-            
-            st.info("🎥 **Camera is starting... Please allow camera access if prompted.**")
-            
-            # Record audio and video
-            audio_path, video_path = self.av_processor.record_audio_video(
-                duration=recording_duration
-            )
-            
-            # Reset recording flag
-            st.session_state.start_recording = False
-            
-            if audio_path:
-                # Store paths in session state
-                st.session_state.audio_path = audio_path
-                st.session_state.video_path = video_path
-                st.session_state.av_recorded = True
-                
-                # Auto-analyze the recording
-                st.session_state.auto_analyze = True
-                
-                st.rerun()
-            else:
-                st.error("❌ Recording failed. Please check your camera and microphone permissions.")
-                st.session_state.fallback_to_text = True
-        
-        # Auto-analyze after recording
-        if (st.session_state.get('auto_analyze', False) and 
-            st.session_state.get('av_recorded', False)):
-            
-            with st.spinner("🔍 Analyzing your recording..."):
-                result_text = self.analyze_audio_video_response(question_index)
-                
-                if result_text is not None:
-                    # Store the transcribed text as the answer
-                    st.session_state.candidate_answers[question_index] = result_text
-                    st.session_state.auto_analyze = False
-                    st.success("✅ Analysis complete! Your response has been saved.")
-                    
-                    # Show preview of recorded media
-                    if st.session_state.video_path and os.path.exists(st.session_state.video_path):
-                        st.subheader("📹 Recording Preview")
-                        st.video(st.session_state.video_path)
-                    
-                    if st.session_state.audio_path and os.path.exists(st.session_state.audio_path):
-                        st.audio(st.session_state.audio_path)
-                    
-                    return result_text
-                else:
-                    st.error("❌ Analysis failed. Please try again.")
-                    st.session_state.auto_analyze = False
-        
-        # Show analyze button if recording exists but hasn't been analyzed
-        if (st.session_state.get('av_recorded', False) and 
-            not st.session_state.get('auto_analyze', False) and
-            st.session_state.candidate_answers[question_index] == ""):
-            
-            if st.button("🔍 Analyze Recording", use_container_width=True, key=f"analyze_{question_index}"):
-                result_text = self.analyze_audio_video_response(question_index)
-                if result_text is not None:
-                    st.session_state.candidate_answers[question_index] = result_text
-                    st.success("✅ Analysis complete! Your response has been saved.")
-                    return result_text
-        
-        # Fallback to text
-        if st.session_state.get('fallback_to_text', False):
-            st.markdown("---")
-            st.warning("🎯 **Using Text Response**")
-            st.info("Please provide your answer in text format:")
-            
-            fallback_answer = st.text_area(
-                "Your answer:",
-                value=st.session_state.candidate_answers[question_index],
-                height=150,
-                placeholder="Type your answer here...",
-                key=f"fallback_{question_index}",
-                label_visibility="collapsed"
-            )
-            
-            if st.button("💾 Save Text Response", key=f"save_fallback_{question_index}"):
-                if fallback_answer.strip():
-                    return fallback_answer
-                else:
-                    st.error("Please provide an answer before saving.")
-        
-        return None
-
-    def analyze_audio_video_response(self, question_index):
-        """
-        Analyze the recorded audio and video response
-        """
-        try:
-            # Create progress indicators
-            progress_bar = st.progress(0)
-            status_text = st.empty()
-            
-            status_text.info("🔄 Starting analysis...")
-            progress_bar.progress(10)
-            
-            result_text = ""
-            
-            # Speech to text analysis
-            if st.session_state.audio_path:
-                status_text.info("🔊 Transcribing audio...")
-                progress_bar.progress(30)
-                
-                text, success = self.av_processor.speech_to_text(st.session_state.audio_path)
-                
-                if success and text != "Could not understand audio":
-                    result_text = text
-                    st.subheader("📝 Transcribed Text")
-                    st.success(text)
-                    progress_bar.progress(50)
-                else:
-                    st.warning(f"🗣️ Could not transcribe audio: {text}")
-                    progress_bar.progress(50)
-            
-            # If we have text, proceed with analysis
-            if result_text:
-                # Analyze speech patterns
-                status_text.info("🎤 Analyzing speech patterns...")
-                speech_analysis = self.av_processor.analyze_speech_patterns(st.session_state.audio_path)
-                progress_bar.progress(70)
-                
-                if speech_analysis.get('success'):
-                    self._display_speech_analysis(speech_analysis)
-                
-                # Analyze video if available
-                if st.session_state.video_path and os.path.exists(st.session_state.video_path):
-                    status_text.info("📹 Analyzing video...")
-                    video_analysis = self.av_processor.analyze_video_feed(st.session_state.video_path)
-                    progress_bar.progress(90)
-                    
-                    if video_analysis.get('success'):
-                        self._display_video_analysis(video_analysis)
-                    
-                    # Run bias detection
-                    if speech_analysis.get('success') and video_analysis.get('success'):
-                        status_text.info("🛡️ Checking for biases...")
-                        self._run_bias_detection(speech_analysis, video_analysis)
-            
-            progress_bar.progress(100)
-            status_text.success("✅ Analysis complete!")
-            
-            # Cleanup files
-            self._cleanup_av_files()
-            
-            return result_text
-            
-        except Exception as e:
-            st.error(f"❌ Analysis error: {str(e)}")
-            return None
-
-    def _display_speech_analysis(self, speech_analysis):
-        """Display speech analysis results"""
-        st.subheader("🎤 Speech Analysis")
-        
-        col1, col2, col3 = st.columns(3)
-        
-        with col1:
-            wpm = speech_analysis['speaking_pace_wpm']
-            st.metric("Speaking Pace", f"{wpm:.1f} WPM")
-        
-        with col2:
-            pause_freq = speech_analysis['pause_frequency']
-            st.metric("Pause Frequency", f"{pause_freq:.1f}/sec")
-        
-        with col3:
-            clarity = speech_analysis['clarity_score']
-            st.metric("Clarity Score", f"{clarity:.1f}/10")
-
-    def _display_video_analysis(self, video_analysis):
-        """Display video analysis results"""
-        st.subheader("📊 Video Analysis")
-        
-        col1, col2, col3 = st.columns(3)
-        
-        with col1:
-            face_ratio = video_analysis['face_detection_ratio'] * 100
-            st.metric("Face Detection", f"{face_ratio:.1f}%")
-        
-        with col2:
-            engagement = video_analysis['engagement_score'] * 100
-            st.metric("Engagement", f"{engagement:.1f}%")
-        
-        with col3:
-            expression = video_analysis['facial_expression']
-            st.metric("Expression", expression.title())
-
-    def _run_bias_detection(self, speech_analysis, video_analysis):
-        """Run bias detection on audio/video analysis"""
-        st.subheader("🛡️ Bias Detection")
-        
-        # Audio bias detection
-        audio_biases = detect_audio_biases(speech_analysis)
-        if audio_biases['biases_detected']:
-            for bias in audio_biases['biases_detected']:
-                st.warning(f"**Audio - {bias['type']}**: {bias['message']}")
-        else:
-            st.success("✅ No significant audio biases detected")
-        
-        # Video bias detection
-        video_biases = detect_video_biases(video_analysis)
-        if video_biases['biases_detected']:
-            for bias in video_biases['biases_detected']:
-                st.warning(f"**Video - {bias['type']}**: {bias['message']}")
-        else:
-            st.success("✅ No significant video biases detected")
-
-    def _cleanup_av_files(self):
-        """Clean up temporary audio/video files"""
-        try:
-            if st.session_state.audio_path and os.path.exists(st.session_state.audio_path):
-                os.remove(st.session_state.audio_path)
-            if st.session_state.video_path and os.path.exists(st.session_state.video_path):
-                os.remove(st.session_state.video_path)
-        except:
-            pass  # Ignore cleanup errors
-
+    
     def submit_answer(self, answer_text, question_index):
-        """Submit answer and run bias detection - ENHANCED FOR AUDIO/VIDEO"""
-        # For audio/video responses, we might have empty text but successful recording
-        if answer_text.strip() or st.session_state.get('av_recorded', False):
+        """Submit answer and run bias detection"""
+        if answer_text.strip():
             st.session_state.candidate_answers[question_index] = answer_text
             
-            # Run bias detection on text (if available)
-            if answer_text.strip():
-                bias_result = detect_bias_in_text(answer_text)
-                st.session_state.bias_reports[question_index] = bias_result
-            else:
-                # For pure audio/video responses, create a placeholder bias report
-                st.session_state.bias_reports[question_index] = {
-                    'bias_types': [], 
-                    'severity': 'None', 
-                    'message': 'Audio/Video response - text analysis not available'
-                }
+            # Run bias detection with language-specific patterns
+            bias_result = detect_bias_in_text(answer_text)
+            st.session_state.bias_reports[question_index] = bias_result
             
             # NEW: Assess answer quality and update difficulty
             current_question = st.session_state.interview_questions[question_index]
@@ -1025,8 +547,8 @@ class FairAIHireApp:
             st.session_state.bias_history.append(bias_entry)
             
             # Run AI analysis if enabled
-            if st.session_state.ai_enabled and self.ai_enhancer.available and answer_text.strip():
-                with st.spinner("🤖 Analyzing answer depth..."):
+            if st.session_state.ai_enabled and self.ai_enhancer.available:
+                with st.spinner(f"🤖 {self.get_translated_text('ai_analysis_previous_answer')}..."):
                     skills_list = [skill[0] for skill in st.session_state.candidate_skills]
                     analysis = self.ai_enhancer.analyze_answer_depth(
                         answer_text, 
@@ -1035,10 +557,10 @@ class FairAIHireApp:
                     )
                     st.session_state.answer_analysis[question_index] = analysis
                     
-                    # Generate follow-up question
+                    # Generate follow-up question - FIXED THE SYNTAX ERROR HERE
                     skill_focus = None
                     if skills_list and question_index < len(skills_list):
-                        skill_focus = skills_list[min(question_index, len(skills_list)-1)]
+                        skill_focus = skills_list[min(question_index, len(skills_list)-1)]  # FIXED: Added missing closing parenthesis
                     
                     follow_up = self.ai_enhancer.generate_follow_up_question(
                         answer_text,
@@ -1195,10 +717,10 @@ class FairAIHireApp:
     
     def display_recruiter_dashboard(self):
         """Display comprehensive recruiter dashboard with analytics"""
-        st.markdown('<div class="section-header">👔 Recruiter Dashboard - Candidate Analytics</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="section-header">{self.get_translated_text("recruiter_dashboard")}</div>', unsafe_allow_html=True)
         
         if not st.session_state.analytics_data:
-            st.info("Complete an interview to see candidate analytics")
+            st.info(self.get_translated_text("complete_interview_to_see"))
             return
         
         analytics_data = st.session_state.analytics_data
@@ -1210,9 +732,9 @@ class FairAIHireApp:
             overall_score = analytics_data['skills_fit'].get('overall_score', 0)
             st.markdown(f"""
             <div class="recruiter-metric-card">
-                <h3>🎯 Overall Match</h3>
+                <h3>🎯 {self.get_translated_text("overall_match")}</h3>
                 <h1>{overall_score}%</h1>
-                <p>Job Requirement Fit</p>
+                <p>{self.get_translated_text("job_requirement_fit")}</p>
             </div>
             """, unsafe_allow_html=True)
         
@@ -1221,9 +743,9 @@ class FairAIHireApp:
             confidence_class = "hire-confidence-high" if hire_confidence >= 80 else "hire-confidence-medium" if hire_confidence >= 60 else "hire-confidence-low"
             st.markdown(f"""
             <div class="recruiter-metric-card {confidence_class}">
-                <h3>🏆 Hire Confidence</h3>
+                <h3>🏆 {self.get_translated_text("hire_confidence")}</h3>
                 <h1>{hire_confidence}%</h1>
-                <p>Recommended Score</p>
+                <p>{self.get_translated_text("recommended_score")}</p>
             </div>
             """, unsafe_allow_html=True)
         
@@ -1231,9 +753,9 @@ class FairAIHireApp:
             coherence_score = analytics_data['communication_analysis'].get('coherence_score', 0)
             st.markdown(f"""
             <div class="recruiter-metric-card">
-                <h3>💬 Communication</h3>
+                <h3>💬 {self.get_translated_text("communication")}</h3>
                 <h1>{coherence_score}%</h1>
-                <p>Coherence Score</p>
+                <p>{self.get_translated_text("coherence_score")}</p>
             </div>
             """, unsafe_allow_html=True)
         
@@ -1242,20 +764,25 @@ class FairAIHireApp:
             bias_score = max(0, 100 - (bias_count * 15))
             st.markdown(f"""
             <div class="recruiter-metric-card">
-                <h3>⚖️ Fairness</h3>
+                <h3>⚖️ {self.get_translated_text("fairness")}</h3>
                 <h1>{bias_score}%</h1>
-                <p>Bias-Free Score</p>
+                <p>{self.get_translated_text("bias_free_score")}</p>
             </div>
             """, unsafe_allow_html=True)
         
         # Automated Insights
-        st.markdown("### 🤖 Automated Insights")
+        st.markdown(f"### 🤖 {self.get_translated_text('automated_insights')}")
         insights = analytics_data.get('summary_insights', [])
         for insight in insights:
             st.info(insight)
         
         # Detailed Analytics Tabs
-        tab1, tab2, tab3, tab4 = st.tabs(["📊 Skills Analysis", "💬 Communication", "🎯 Recommendations", "📈 Comparative"])
+        tab1, tab2, tab3, tab4 = st.tabs([
+            f"📊 {self.get_translated_text('skills_analysis')}",
+            f"💬 {self.get_translated_text('communication')}",
+            f"🎯 {self.get_translated_text('recommendations')}",
+            f"📈 {self.get_translated_text('candidate_comparison')}"
+        ])
         
         with tab1:
             self.display_skills_analytics(analytics_data['skills_fit'])
@@ -1270,14 +797,14 @@ class FairAIHireApp:
             self.display_comparative_analytics()
         
         # Export Functionality
-        st.markdown("### 📤 Export Analysis")
+        st.markdown(f"### 📤 {self.get_translated_text('export_analysis')}")
         col1, col2 = st.columns(2)
         
         with col1:
-            if st.button("📄 Generate Full Report", use_container_width=True):
+            if st.button(f"📄 {self.get_translated_text('generate_full_report')}", use_container_width=True):
                 report = self.generate_analytics_report()
                 st.download_button(
-                    label="📥 Download PDF Report",
+                    label=f"📥 {self.get_translated_text('download_report')}",
                     data=report,
                     file_name=f"candidate_analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
                     mime="text/plain",
@@ -1285,7 +812,7 @@ class FairAIHireApp:
                 )
         
         with col2:
-            if st.button("🔄 Analyze New Candidate", type="primary", use_container_width=True):
+            if st.button(f"🔄 {self.get_translated_text('analyze_new_candidate')}", type="primary", use_container_width=True):
                 self.reset_interview()
                 st.rerun()
     
@@ -1294,14 +821,14 @@ class FairAIHireApp:
         col1, col2 = st.columns(2)
         
         with col1:
-            st.markdown("#### 🎯 Skills Match Breakdown")
+            st.markdown(f"#### 🎯 {self.get_translated_text('skills_match_breakdown')}")
             
             # Create skills match gauge
             fig = go.Figure(go.Indicator(
                 mode = "gauge+number+delta",
                 value = skills_fit.get('overall_score', 0),
                 domain = {'x': [0, 1], 'y': [0, 1]},
-                title = {'text': "Overall Match Score"},
+                title = {'text': self.get_translated_text("overall_match")},
                 gauge = {
                     'axis': {'range': [None, 100]},
                     'bar': {'color': "darkblue"},
@@ -1321,18 +848,18 @@ class FairAIHireApp:
             st.plotly_chart(fig, use_container_width=True)
         
         with col2:
-            st.markdown("#### 📈 Skills Distribution")
+            st.markdown(f"#### 📈 {self.get_translated_text('skills_distribution')}")
             
             # Skills breakdown
             strengths = skills_fit.get('strengths', [])
             weaknesses = skills_fit.get('weaknesses', [])
             
-            st.metric("Key Strengths", len(strengths))
+            st.metric(self.get_translated_text("strengths_label"), len(strengths))
             if strengths:
                 for strength in strengths:
                     st.success(f"✅ {strength}")
             
-            st.metric("Development Areas", len(weaknesses))
+            st.metric(self.get_translated_text("weaknesses"), len(weaknesses))
             if weaknesses:
                 for weakness in weaknesses:
                     st.error(f"📝 {weakness}")
@@ -1342,7 +869,7 @@ class FairAIHireApp:
         col1, col2 = st.columns(2)
         
         with col1:
-            st.markdown("#### 🗣️ Communication Metrics")
+            st.markdown(f"#### 🗣️ {self.get_translated_text('communication_metrics')}")
             
             metrics_data = {
                 'Metric': ['Coherence', 'Response Time', 'Answer Length', 'Confidence'],
@@ -1356,19 +883,19 @@ class FairAIHireApp:
             }
             
             df = pd.DataFrame(metrics_data)
-            fig = px.bar(df, x='Metric', y='Score', title="Communication Metrics",
+            fig = px.bar(df, x='Metric', y='Score', title=self.get_translated_text("communication_metrics"),
                         color='Score', color_continuous_scale='Viridis')
             st.plotly_chart(fig, use_container_width=True)
         
         with col2:
-            st.markdown("#### 💡 Communication Style")
+            st.markdown(f"#### 💡 {self.get_translated_text('communication_style')}")
             
             style = communication_analysis.get('communication_style', 'Unknown')
-            st.metric("Communication Style", style)
+            st.metric(self.get_translated_text("communication_style"), style)
             
             improvement_areas = communication_analysis.get('improvement_areas', [])
             if improvement_areas:
-                st.markdown("**Areas for Improvement:**")
+                st.markdown(f"**{self.get_translated_text('improvement_areas')}:**")
                 for area in improvement_areas:
                     st.warning(f"⚠️ {area}")
             else:
@@ -1376,7 +903,7 @@ class FairAIHireApp:
     
     def display_recommendations_analytics(self, analytics_data):
         """Display recommendations and next steps"""
-        st.markdown("#### 💡 Actionable Recommendations")
+        st.markdown(f"#### 💡 {self.get_translated_text('actionable_recommendations')}")
         
         recommendations = analytics_data.get('improvement_recommendations', [])
         if recommendations:
@@ -1387,7 +914,7 @@ class FairAIHireApp:
         
         # Next steps based on hire confidence
         hire_confidence = analytics_data.get('hire_confidence', 0)
-        st.markdown("#### 🎯 Recommended Next Steps")
+        st.markdown(f"#### 🎯 {self.get_translated_text('recommended_next_steps')}")
         
         if hire_confidence >= 80:
             st.success("**🏆 Strong Candidate - Recommended Actions:**")
@@ -1407,7 +934,7 @@ class FairAIHireApp:
     
     def display_comparative_analytics(self):
         """Display comparative analytics for multiple candidates"""
-        st.markdown("#### 📊 Candidate Comparison")
+        st.markdown(f"#### 📊 {self.get_translated_text('candidate_comparison')}")
         
         # Mock comparative data - in real implementation, this would come from database
         comparative_data = self.analytics_engine.generate_comparative_analytics([
@@ -1434,7 +961,7 @@ class FairAIHireApp:
             skills_comparison = comparative_data.get('skills_comparison', {})
             if skills_comparison:
                 df = pd.DataFrame(skills_comparison)
-                fig = px.bar(df, barmode='group', title="Skills Proficiency Comparison")
+                fig = px.bar(df, barmode='group', title=self.get_translated_text("skills_comparison"))
                 st.plotly_chart(fig, use_container_width=True)
             
             # Diversity metrics
@@ -1444,7 +971,7 @@ class FairAIHireApp:
                 for metric, value in diversity_metrics.items():
                     st.write(f"**{metric.replace('_', ' ').title()}:** {value}")
         else:
-            st.info("Add more candidates to enable comparative analytics")
+            st.info(self.get_translated_text("add_more_candidates"))
     
     def generate_analytics_report(self):
         """Generate comprehensive analytics report"""
@@ -1503,11 +1030,29 @@ class FairAIHireApp:
     def sidebar_controls(self):
         """Display sidebar controls and information"""
         with st.sidebar:
-            st.markdown("### 🔧 Session Controls")
+            st.markdown(f"### 🔧 {self.get_translated_text('session_controls')}")
+            
+            # Language Selector
+            st.markdown(f"### 🌍 {self.get_translated_text('interview_language')}")
+            selected_language = st.selectbox(
+                self.get_translated_text('select_language'),
+                options=self.language_support.supported_languages,
+                index=self.language_support.supported_languages.index(st.session_state.selected_language)
+            )
+            
+            if selected_language != st.session_state.selected_language:
+                st.session_state.selected_language = selected_language
+                st.rerun()
+            
+            # Show auto-detected language if available
+            if st.session_state.auto_detected_language:
+                st.info(f"🌐 {self.get_translated_text('auto_detect')}: {st.session_state.auto_detected_language}")
+            
+            st.markdown("---")
             
             # AI Enhancement Toggle
-            st.markdown("### 🤖 AI Enhancement")
-            ai_enabled = st.toggle("Enable AI Features", 
+            st.markdown(f"### 🤖 {self.get_translated_text('ai_enhancement')}")
+            ai_enabled = st.toggle(self.get_translated_text("enable_ai_features"), 
                                  value=st.session_state.ai_enabled,
                                  help="Use Ollama for enhanced question generation and answer analysis")
             
@@ -1522,63 +1067,70 @@ class FairAIHireApp:
                 st.error("❌ Ollama not available")
             
             st.markdown("---")
-            st.markdown("### 📊 Current Status")
+            st.markdown(f"### 📊 {self.get_translated_text('current_status')}")
             
             if st.session_state.resume_analyzed:
-                st.success("✅ Resume Analyzed")
-                st.write(f"Skills Found: {len(st.session_state.candidate_skills)}")
-                st.write(f"Experience: {st.session_state.candidate_experience}")
-                st.write(f"Difficulty: {st.session_state.current_difficulty}")
+                st.success(f"✅ {self.get_translated_text('resume_analyzed')}")
+                st.write(f"{self.get_translated_text('skills_found')}: {len(st.session_state.candidate_skills)}")
+                st.write(f"{self.get_translated_text('experience_level')}: {st.session_state.candidate_experience}")
+                st.write(f"{self.get_translated_text('current_difficulty')}: {st.session_state.current_difficulty}")
+                st.write(f"{self.get_translated_text('interview_language')}: {st.session_state.selected_language}")
             
             if st.session_state.interview_started:
-                st.success("✅ Interview Started")
-                st.write(f"Questions: {len(st.session_state.interview_questions)}")
+                st.success(f"✅ {self.get_translated_text('interview_started')}")
+                st.write(f"{self.get_translated_text('questions_generated')}: {len(st.session_state.interview_questions)}")
                 answered = len([a for a in st.session_state.candidate_answers if a.strip()])
-                st.write(f"Answered: {answered}/{len(st.session_state.interview_questions)}")
+                st.write(f"{self.get_translated_text('answered_questions')}: {answered}/{len(st.session_state.interview_questions)}")
                 
                 # NEW: Show bias count
                 bias_count = len([r for r in st.session_state.bias_reports if r and r.get('bias_types')])
-                st.write(f"Bias Alerts: {bias_count}")
+                st.write(f"{self.get_translated_text('bias_alerts')}: {bias_count}")
             
             if st.session_state.interview_completed:
-                st.success("✅ Interview Completed")
+                st.success(f"✅ {self.get_translated_text('interview_completed')}")
                 if st.session_state.analytics_data:
-                    st.write(f"Hire Confidence: {st.session_state.analytics_data.get('hire_confidence', 0)}%")
+                    st.write(f"{self.get_translated_text('hire_confidence')}: {st.session_state.analytics_data.get('hire_confidence', 0)}%")
             
             st.markdown("---")
             
-            if st.button("🔄 Reset Entire Session", use_container_width=True, key="sidebar_reset"):
+            if st.button(f"🔄 {self.get_translated_text('reset_entire_session')}", use_container_width=True, key="sidebar_reset"):
                 self.reset_interview()
                 st.rerun()
             
             st.markdown("---")
-            st.markdown("### 💡 Interview Tips")
+            st.markdown(f"### 💡 {self.get_translated_text('interview_tips')}")
             st.markdown("""
             - Be specific in your answers
             - Include real examples and projects
             - Mention challenges and solutions
             - Focus on job-relevant information
             - Avoid personal details that could introduce bias
+            - You can answer in any supported language
             """)
+            
+            # Accessibility Note
+            st.markdown("---")
+            st.markdown(f"### 🌐 {self.get_translated_text('accessibility')}")
+            st.info(self.get_translated_text('accessibility_note'))
 
     def display_header(self):
         """Display application header"""
-        st.markdown('<h1 class="main-header">🤖 FairAI Hire - Bias-Free Interviews</h1>', 
+        st.markdown(f'<h1 class="main-header">🤖 {self.get_translated_text("welcome")}</h1>', 
                    unsafe_allow_html=True)
         
-        st.markdown("""
+        st.markdown(f"""
         <div style='text-align: center; color: #ddd; margin-bottom: 2rem;'>
-        Welcome to FairAI Hire! Upload your resume below to start a personalized, 
+        Upload your resume below to start a personalized, 
         unbiased technical interview.
         </div>
         """, unsafe_allow_html=True)
     
     def resume_analysis_section(self):
         """Display resume analysis section"""
-        st.markdown('<div class="section-header">📄 Resume Analysis</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="section-header">📄 {self.get_translated_text("resume_analysis")}</div>', unsafe_allow_html=True)
         
         st.markdown('<div class="custom-container">', unsafe_allow_html=True)
-        st.markdown("**Paste your resume text below:**")
+        st.markdown(f"**{self.get_translated_text('paste_resume')}**")
         
         resume_text = st.text_area(
             " ",
@@ -1598,7 +1150,7 @@ Skills: Python, React, SQL, Teamwork, Communication""",
         col1, col2 = st.columns([1, 1])
         
         with col1:
-            if st.button("🚀 Analyze Resume & Start Interview", type="primary", use_container_width=True):
+            if st.button(f"🚀 {self.get_translated_text('analyze_resume')}", type="primary", use_container_width=True):
                 if resume_text.strip():
                     with st.spinner("🔍 Analyzing your resume..."):
                         if self.analyze_resume(resume_text) and self.generate_interview_questions():
@@ -1608,45 +1160,45 @@ Skills: Python, React, SQL, Teamwork, Communication""",
                     st.error("❌ Please paste your resume text to continue.")
         
         with col2:
-            if st.button("🔄 Reset Session", use_container_width=True):
+            if st.button(f"🔄 {self.get_translated_text('reset_session')}", use_container_width=True):
                 self.reset_interview()
                 st.rerun()
     
     def display_skills(self):
         """Display extracted skills in a visually appealing way"""
         if st.session_state.candidate_skills:
-            st.markdown('<div class="section-header">🎯 Discovered Skills & Experience</div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="section-header">🎯 {self.get_translated_text("discovered_skills")}</div>', unsafe_allow_html=True)
             
             st.markdown('<div class="custom-container">', unsafe_allow_html=True)
             
             col1, col2 = st.columns(2)
             
             with col1:
-                st.markdown("**🔧 Technical Skills**")
+                st.markdown(f"**🔧 {self.get_translated_text('technical_skills')}**")
                 tech_skills = [skill for skill, category, confidence in st.session_state.candidate_skills if category == 'technical']
                 if tech_skills:
                     for skill in tech_skills:
                         st.markdown(f'<span class="skill-chip skill-chip-technical">⚡ {skill.title()}</span>', 
                                    unsafe_allow_html=True)
                 else:
-                    st.markdown("*No technical skills detected*")
+                    st.markdown(f"*{self.get_translated_text('no_technical_skills')}*")
             
             with col2:
-                st.markdown("**💬 Soft Skills**")
+                st.markdown(f"**💬 {self.get_translated_text('soft_skills')}**")
                 soft_skills = [skill for skill, category, confidence in st.session_state.candidate_skills if category == 'soft']
                 if soft_skills:
                     for skill in soft_skills:
                         st.markdown(f'<span class="skill-chip skill-chip-soft">🌟 {skill.title()}</span>', 
                                    unsafe_allow_html=True)
                 else:
-                    st.markdown("*No soft skills detected*")
+                    st.markdown(f"*{self.get_translated_text('no_soft_skills')}*")
             
             # Experience level
             level_emojis = {'Entry': '🟢', 'Mid': '🟡', 'Senior': '🔴'}
             emoji = level_emojis.get(st.session_state.candidate_experience, '⚪')
             
             st.markdown(f"""
-            **📊 Experience Level:** 
+            **📊 {self.get_translated_text('experience_level')}:** 
             <span style='font-size: 1.2rem; font-weight: bold; color: #4CAF50;'>
             {emoji} {st.session_state.candidate_experience} Level
             </span>
@@ -1656,17 +1208,17 @@ Skills: Python, React, SQL, Teamwork, Communication""",
 
     def skills_visualization_section(self):
         """Display skills graph visualization"""
-        st.markdown('<div class="section-header">🕸️ Skills Graph Visualization</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="section-header">🕸️ {self.get_translated_text("skills_visualization")}</div>', unsafe_allow_html=True)
         
         if not st.session_state.skills_graph:
-            st.info("👆 Analyze a resume first to see skills visualization!")
+            st.info(f"👆 {self.get_translated_text('analyze_resume_first')}")
             return
         
         # Create tabs for different visualizations
         viz_tab1, viz_tab2, viz_tab3 = st.tabs(["Network Graph", "Category Analysis", "Confidence Heatmap"])
         
         with viz_tab1:
-            st.markdown("### 🕸️ Skills Relationship Network")
+            st.markdown(f"### 🕸️ {self.get_translated_text('skills_relationship_network')}")
             st.markdown("""
             **Understanding the Network:**
             - 🔴 **Nodes** = Your skills (size = confidence level)
@@ -1694,7 +1246,7 @@ Skills: Python, React, SQL, Teamwork, Communication""",
             st.dataframe(df_skills, use_container_width=True, key="skills_dataframe")
             
         with viz_tab2:
-            st.markdown("### 📊 Skills Category Analysis")
+            st.markdown(f"### 📊 {self.get_translated_text('skills_category_analysis')}")
             
             col1, col2 = st.columns(2)
             
@@ -1711,25 +1263,25 @@ Skills: Python, React, SQL, Teamwork, Communication""",
                 st.plotly_chart(fig_radar, use_container_width=True, key="skills_radar")
             
         with viz_tab3:
-            st.markdown("### 🔥 Skill Confidence Heatmap")
+            st.markdown(f"### 🔥 {self.get_translated_text('skill_confidence_heatmap')}")
             fig_heatmap = create_confidence_heatmap(st.session_state.skills_graph)
             st.plotly_chart(fig_heatmap, use_container_width=True, key="confidence_heatmap")
             
             # Skills metrics
             metrics = calculate_skill_metrics(st.session_state.skills_graph)
-            st.markdown("### 📈 Skills Metrics")
+            st.markdown(f"### 📈 {self.get_translated_text('skills_metrics')}")
             col1, col2, col3, col4 = st.columns(4)
             with col1:
-                st.metric("Total Skills", metrics['total_skills'])
+                st.metric(self.get_translated_text("total_skills"), metrics['total_skills'])
             with col2:
-                st.metric("Avg Confidence", f"{metrics['avg_confidence']:.2f}")
+                st.metric(self.get_translated_text("avg_confidence"), f"{metrics['avg_confidence']:.2f}")
             with col3:
-                st.metric("Relationships", metrics['total_relationships'])
+                st.metric(self.get_translated_text("relationships"), metrics['total_relationships'])
             with col4:
-                st.metric("Connectivity", f"{metrics['connectivity_score']:.2f}")
+                st.metric(self.get_translated_text("connectivity"), f"{metrics['connectivity_score']:.2f}")
             
             # Export functionality
-            st.markdown("### 💾 Export Skills Data")
+            st.markdown(f"### 💾 {self.get_translated_text('export_skills_data')}")
             if st.button("Export Skills Data as JSON", key="export_skills"):
                 skills_export = {
                     "skills_graph": {
@@ -1752,18 +1304,26 @@ Skills: Python, React, SQL, Teamwork, Communication""",
                 )
 
     def interview_section(self):
-        """Display interview questions and answers with navigation - ENHANCED WITH REAL-TIME AUDIO/VIDEO"""
+        """Display interview questions and answers with navigation"""
         if not st.session_state.interview_started or st.session_state.interview_completed:
             return
         
-        st.markdown('<div class="section-header">🎤 Interview Session</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="section-header">🎤 {self.get_translated_text("interview_session")}</div>', unsafe_allow_html=True)
         
-        # Real-time bias alert counter
+        # Language indicator
+        st.markdown(f"""
+        <div class="language-selector">
+            🌍 <strong>{self.get_translated_text('interview_language')}:</strong> {st.session_state.selected_language} 
+            | 💬 <strong>You can answer in any language</strong>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # NEW: Real-time bias alert counter
         current_biases = len([r for r in st.session_state.bias_reports if r and r.get('bias_types')])
         if current_biases > 0:
             st.markdown(f"""
             <div class="bias-alert-box">
-                <strong>🚨 Real-time Bias Alert:</strong> {current_biases} potential bias(es) detected so far
+                <strong>🚨 {self.get_translated_text('bias_alerts')}:</strong> {current_biases} potential bias(es) detected so far
             </div>
             """, unsafe_allow_html=True)
         
@@ -1779,7 +1339,8 @@ Skills: Python, React, SQL, Teamwork, Communication""",
             <div class='progress-text'>
             📍 Question {current_index + 1} of {total_questions} 
             ({int(progress * 100)}% Complete)
-            <br>📊 Current Difficulty: <strong>{st.session_state.current_difficulty}</strong>
+            <br>📊 {self.get_translated_text('current_difficulty')}: <strong>{st.session_state.current_difficulty}</strong>
+            <br>🌐 {self.get_translated_text('interview_language')}: <strong>{st.session_state.selected_language}</strong>
             </div>
             """, unsafe_allow_html=True)
             
@@ -1794,7 +1355,7 @@ Skills: Python, React, SQL, Teamwork, Communication""",
                 enhanced_data = st.session_state.ai_enhanced_questions[current_index]
                 st.markdown(f"""
                 <div class="ai-enhanced-box">
-                    <strong style='color: #FFD700;'>🤖 AI-Enhanced Question:</strong><br>
+                    <strong style='color: #FFD700;'>🤖 {self.get_translated_text('ai_enhanced_question')}:</strong><br>
                     {enhanced_data['improved_question']}
                     <br><br>
                     <small><em>💡 {enhanced_data['explanation']}</em></small>
@@ -1803,151 +1364,80 @@ Skills: Python, React, SQL, Teamwork, Communication""",
             else:
                 st.markdown(f"""
                 <div class="question-box">
-                    <strong style='color: #4FC3F7;'>💡 Question:</strong><br>
+                    <strong style='color: #4FC3F7;'>💡 {self.get_translated_text('questions_generated')}:</strong><br>
                     {current_question}
                 </div>
                 """, unsafe_allow_html=True)
             
-            # Response type selection
-            st.markdown("### 📝 Choose Your Response Method")
-            response_type = st.radio(
-                "Response Type:",
-                ["💬 Text Response", "🎙️ Real-Time Audio/Video (Live Transcription)"],
-                horizontal=True,
-                key=f"response_type_{current_index}",
-                help="Choose how you want to answer this question"
+            # Answer input area
+            st.markdown(f"**{self.get_translated_text('your_answer')}**")
+            answer = st.text_area(
+                " ",
+                value=st.session_state.candidate_answers[current_index],
+                height=180,
+                placeholder="Share your experience and thoughts here... You can answer in any language.",
+                key=f"answer_{current_index}",
+                label_visibility="collapsed"
             )
             
-            answer = ""
-            
-            if response_type == "💬 Text Response":
-                # Text input
-                st.markdown("**📝 Your Answer:**")
-                answer = st.text_area(
-                    " ",
-                    value=st.session_state.candidate_answers[current_index],
-                    height=180,
-                    placeholder="Share your experience and thoughts here... Be specific and provide examples.",
-                    key=f"answer_{current_index}",
-                    label_visibility="collapsed"
-                )
-                
-                # Update answer in session state as user types
-                if answer != st.session_state.candidate_answers[current_index]:
-                    st.session_state.candidate_answers[current_index] = answer
-                
-                # Character/word count
-                if answer.strip():
-                    word_count = len(answer.split())
-                    char_count = len(answer)
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        st.caption(f"📊 Words: {word_count}")
-                    with col2:
-                        st.caption(f"📊 Characters: {char_count}")
-                    
-            else:  # Real-Time Audio/Video Response
-                transcription = self.realtime_audio_video_interface(current_index)
-                if transcription:
-                    answer = transcription
-                    # Auto-save the transcription
-                    st.session_state.candidate_answers[current_index] = answer
+            # Update answer in session state as user types
+            if answer != st.session_state.candidate_answers[current_index]:
+                st.session_state.candidate_answers[current_index] = answer
             
             # Display AI analysis of previous answer if available
             if (current_index > 0 and 
                 st.session_state.answer_analysis and 
                 st.session_state.answer_analysis[current_index-1]):
                 
-                st.markdown("---")
                 analysis = st.session_state.answer_analysis[current_index-1]
                 if analysis.get('success'):
                     st.markdown(f"""
                     <div class="ai-analysis-box">
-                        <strong>🤖 AI Analysis of Previous Answer:</strong><br>
-                        <strong>Quality Score:</strong> {analysis.get('quality_score', 'N/A')}/10<br>
-                        <strong>Strengths:</strong> {', '.join(analysis.get('strengths', []))}<br>
-                        <strong>Skills Demonstrated:</strong> {', '.join(analysis.get('skills_demonstrated', []))}
+                        <strong>🤖 {self.get_translated_text('ai_analysis_previous_answer')}:</strong><br>
+                        <strong>{self.get_translated_text('quality_score_label')}:</strong> {analysis.get('quality_score', 'N/A')}/10<br>
+                        <strong>{self.get_translated_text('strengths_label')}:</strong> {', '.join(analysis.get('strengths', []))}<br>
+                        <strong>{self.get_translated_text('skills_demonstrated')}:</strong> {', '.join(analysis.get('skills_demonstrated', []))}
                     </div>
                     """, unsafe_allow_html=True)
             
             # Navigation and action buttons
-            st.markdown("---")
-            st.markdown("### 🎯 Actions")
             col1, col2, col3, col4 = st.columns([1, 1, 1, 1])
             
             with col1:
                 if current_index > 0:
-                    if st.button("⬅️ Previous", use_container_width=True, key=f"prev_{current_index}"):
+                    if st.button(f"⬅️ {self.get_translated_text('previous_question')}", use_container_width=True, key=f"prev_{current_index}"):
                         self.navigate_questions("previous")
                         st.rerun()
-                else:
-                    st.button("⬅️ Previous", use_container_width=True, disabled=True, key=f"prev_{current_index}_disabled")
             
             with col2:
-                if st.button("💾 Save Answer", use_container_width=True, key=f"save_{current_index}"):
-                    if answer.strip():
-                        if self.submit_answer(answer, current_index):
-                            st.success("✅ Answer saved successfully!")
-                            time.sleep(0.5)
-                        else:
-                            st.error("❌ Failed to save answer. Please try again.")
+                if st.button(f"💾 {self.get_translated_text('save_answer')}", use_container_width=True, key=f"save_{current_index}"):
+                    if self.submit_answer(answer, current_index):
+                        st.success("✅ Answer saved!")
                     else:
-                        st.error("❌ Please provide an answer before saving.")
+                        st.error("Please provide an answer before saving.")
             
             with col3:
                 if current_index < total_questions - 1:
-                    if st.button("Next ➡️", type="primary", use_container_width=True, key=f"next_{current_index}"):
-                        if answer.strip():
-                            self.submit_answer(answer, current_index)
-                            self.navigate_questions("next")
-                            st.rerun()
-                        else:
-                            st.error("❌ Please provide an answer before proceeding to the next question.")
+                    if st.button(f"{self.get_translated_text('next_question')} ➡️", type="primary", use_container_width=True, key=f"next_{current_index}"):
+                        self.submit_answer(answer, current_index)
+                        self.navigate_questions("next")
+                        st.rerun()
                 else:
-                    if st.button("🏁 Complete Interview", type="primary", use_container_width=True, key="complete_interview"):
-                        if answer.strip():
-                            self.submit_answer(answer, current_index)
+                    if st.button(f"🏁 {self.get_translated_text('complete_interview')}", type="primary", use_container_width=True, key="complete_interview"):
+                        if self.submit_answer(answer, current_index):
                             self.complete_interview()
                             st.balloons()
-                            st.success("🎊 Congratulations! Interview completed successfully!")
-                            st.info("📊 Check the 'Fairness Dashboard' and 'Recruiter Analytics' tabs for your results.")
-                            time.sleep(1)
+                            st.success("🎊 Interview completed! Check the summary tab.")
                             st.rerun()
-                        else:
-                            st.error("❌ Please provide an answer before completing the interview.")
             
             with col4:
-                if st.button("🔄 Restart Interview", use_container_width=True, key=f"restart_{current_index}"):
-                    if st.warning("⚠️ Are you sure? This will delete all your answers."):
-                        self.reset_interview()
-                        st.rerun()
-            
-            # Help section
-            with st.expander("💡 Tips for Better Answers"):
-                st.markdown("""
-                **For Text Responses:**
-                - Use the STAR method (Situation, Task, Action, Result)
-                - Be specific with examples and numbers
-                - Keep answers concise but detailed (50-150 words)
-                - Proofread before saving
-                
-                **For Audio/Video Responses:**
-                - Speak clearly and at a moderate pace
-                - Look at the camera for better engagement scores
-                - Ensure good lighting and quiet environment
-                - Practice your answer mentally before recording
-                - Aim for 1-2 minutes per response
-                
-                **General Tips:**
-                - Focus on job-relevant skills and experiences
-                - Avoid personal demographic information
-                - Use concrete examples from your work
-                - Show problem-solving and critical thinking
-                """)
+                if st.button("🔄 Restart", use_container_width=True, key=f"restart_{current_index}"):
+                    self.reset_interview()
+                    st.rerun()
 
     def display_fairness_dashboard(self):
         """Display comprehensive fairness dashboard with visual analytics"""
-        st.markdown('<div class="section-header">📊 Fairness Dashboard & Analytics</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="section-header">📊 {self.get_translated_text("fairness_dashboard")}</div>', unsafe_allow_html=True)
         
         # Calculate metrics
         skills_match_score = self.calculate_skills_match_score()
@@ -1964,9 +1454,9 @@ Skills: Python, React, SQL, Teamwork, Communication""",
         with col1:
             st.markdown(f"""
             <div class="summary-card" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
-                <h3>🎯 Skills Match</h3>
+                <h3>🎯 {self.get_translated_text('overall_match')}</h3>
                 <h2>{skills_match_score}%</h2>
-                <p>Job Relevance</p>
+                <p>{self.get_translated_text('job_requirement_fit')}</p>
             </div>
             """, unsafe_allow_html=True)
         
@@ -1974,18 +1464,18 @@ Skills: Python, React, SQL, Teamwork, Communication""",
             alert_emoji = {"Low": "🟢", "Medium": "🟡", "High": "🔴"}.get(bias_alert_level, "⚪")
             st.markdown(f"""
             <div class="summary-card" style="background: linear-gradient(135deg, {bias_color} 0%, #e83e8c 100%);">
-                <h3>⚠️ Bias Alert</h3>
+                <h3>⚠️ {self.get_translated_text('bias_alerts')}</h3>
                 <h2>{alert_emoji} {bias_alert_level}</h2>
-                <p>Fairness Level</p>
+                <p>{self.get_translated_text('fairness')}</p>
             </div>
             """, unsafe_allow_html=True)
         
         with col3:
             st.markdown(f"""
             <div class="summary-card" style="background: linear-gradient(135deg, #28a745 0%, #20c997 100%);">
-                <h3>📈 Completeness</h3>
+                <h3>📈 {self.get_translated_text('completeness')}</h3>
                 <h2>{completeness_score}%</h2>
-                <p>Interview Progress</p>
+                <p>{self.get_translated_text('interview_progress')}</p>
             </div>
             """, unsafe_allow_html=True)
         
@@ -1993,9 +1483,9 @@ Skills: Python, React, SQL, Teamwork, Communication""",
             score_color = "#28a745" if fairness_score >= 7 else "#ffc107" if fairness_score >= 5 else "#dc3545"
             st.markdown(f"""
             <div class="summary-card" style="background: linear-gradient(135deg, {score_color} 0%, #fd7e14 100%);">
-                <h3>⚖️ Fairness Score</h3>
+                <h3>⚖️ {self.get_translated_text('fairness_score')}</h3>
                 <h2>{fairness_score}/10</h2>
-                <p>Overall Rating</p>
+                <p>{self.get_translated_text('overall_rating')}</p>
             </div>
             """, unsafe_allow_html=True)
         
@@ -2005,48 +1495,48 @@ Skills: Python, React, SQL, Teamwork, Communication""",
             grade = bias_report.get('grade', 'A+')
             st.markdown(f"""
             <div class="summary-card" style="background: linear-gradient(135deg, #6f42c1 0%, #e83e8c 100%);">
-                <h3>📊 Bias Score</h3>
+                <h3>📊 {self.get_translated_text('bias_score')}</h3>
                 <h2>{bias_score}% {grade}</h2>
-                <p>Fairness Grade</p>
+                <p>{self.get_translated_text('fairness_grade')}</p>
             </div>
             """, unsafe_allow_html=True)
         
         # NEW: Enhanced Visual Analytics Section
-        st.markdown("### 📊 Advanced Bias Analytics")
+        st.markdown(f"### 📊 {self.get_translated_text('advanced_bias_analytics')}")
         
         # Row 1: Heatmap and Timeline
         col1, col2 = st.columns(2)
         
         with col1:
-            st.markdown("#### 🔥 Real-time Bias Heatmap")
+            st.markdown(f"#### 🔥 {self.get_translated_text('real_time_bias_heatmap')}")
             heatmap_fig = self.heatmap_generator.generate_bias_heatmap(st.session_state.interview_data)
             st.plotly_chart(heatmap_fig, use_container_width=True, key="enhanced_bias_heatmap")
         
         with col2:
-            st.markdown("#### 📈 Bias Detection Timeline")
+            st.markdown(f"#### 📈 {self.get_translated_text('bias_detection_timeline')}")
             if len(st.session_state.bias_history) > 1:
                 timeline_fig = self.heatmap_generator.generate_timeline_heatmap(st.session_state.bias_history)
                 st.plotly_chart(timeline_fig, use_container_width=True, key="bias_timeline")
             else:
-                st.info("Complete more questions to see timeline analysis")
+                st.info(self.get_translated_text("complete_more_questions"))
         
         # Row 2: Category Distribution and Severity Gauge
         col3, col4 = st.columns(2)
         
         with col3:
-            st.markdown("#### 🎯 Bias Category Distribution")
+            st.markdown(f"#### 🎯 {self.get_translated_text('bias_category_distribution')}")
             category_fig = self.heatmap_generator.generate_category_distribution(
                 bias_report.get('category_breakdown', {})
             )
             st.plotly_chart(category_fig, use_container_width=True, key="bias_categories")
         
         with col4:
-            st.markdown("#### 📊 Overall Bias Score")
+            st.markdown(f"#### 📊 {self.get_translated_text('overall_bias_score')}")
             gauge_fig = self.heatmap_generator.generate_severity_gauge(bias_score)
             st.plotly_chart(gauge_fig, use_container_width=True, key="bias_gauge")
         
         # NEW: Bias Hotspots Section
-        st.markdown("### 🚨 Bias Hotspots & Recommendations")
+        st.markdown(f"### 🚨 {self.get_translated_text('bias_hotspots_recommendations')}")
         
         hotspots = bias_report.get('trend_analysis', {}).get('hotspots', [])
         if hotspots:
@@ -2055,16 +1545,22 @@ Skills: Python, React, SQL, Teamwork, Communication""",
             # Display recommendations
             recommendations = bias_report.get('recommendations', [])
             if recommendations:
-                st.markdown("#### 💡 Improvement Recommendations:")
+                st.markdown(f"#### 💡 {self.get_translated_text('improvement_recommendations')}:")
                 for rec in recommendations:
                     st.success(f"✅ {rec}")
         else:
             st.success("🎉 Excellent! No significant bias hotspots detected in this interview.")
         
         # Detailed Breakdown Section
-        st.markdown("### 📋 Detailed Analysis")
+        st.markdown(f"### 📋 {self.get_translated_text('detailed_analysis')}")
         
-        tab1, tab2, tab3, tab4, tab5 = st.tabs(["🔍 Skills Analysis", "⚠️ Bias Alerts", "📊 Performance", "🤖 AI Insights", "💡 Recommendations"])
+        tab1, tab2, tab3, tab4, tab5 = st.tabs([
+            f"🔍 {self.get_translated_text('skills_analysis')}",
+            f"⚠️ {self.get_translated_text('bias_analysis')}",
+            f"📊 {self.get_translated_text('performance_analysis')}",
+            f"🤖 {self.get_translated_text('ai_insights')}",
+            f"💡 {self.get_translated_text('recommendations')}"
+        ])
         
         with tab1:
             self.display_skills_analysis()
@@ -2082,14 +1578,14 @@ Skills: Python, React, SQL, Teamwork, Communication""",
             self.display_recommendations()
         
         # Export Functionality
-        st.markdown("### 📤 Export Results")
+        st.markdown(f"### 📤 {self.get_translated_text('export_analysis')}")
         col1, col2 = st.columns(2)
         
         with col1:
-            if st.button("📄 Generate Fairness Report", use_container_width=True, key="generate_report"):
+            if st.button(f"📄 {self.get_translated_text('generate_full_report')}", use_container_width=True, key="generate_report"):
                 report = self.generate_fairness_report()
                 st.download_button(
-                    label="📥 Download Report",
+                    label=f"📥 {self.get_translated_text('download_report')}",
                     data=report,
                     file_name=f"fairness_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
                     mime="text/plain",
@@ -2098,7 +1594,7 @@ Skills: Python, React, SQL, Teamwork, Communication""",
                 )
         
         with col2:
-            if st.button("🔄 Start New Interview", type="primary", use_container_width=True, key="new_interview"):
+            if st.button(f"🔄 {self.get_translated_text('start_interview')}", type="primary", use_container_width=True, key="new_interview"):
                 self.reset_interview()
                 st.rerun()
 
@@ -2166,41 +1662,41 @@ Skills: Python, React, SQL, Teamwork, Communication""",
 
     def display_skills_analysis(self):
         """Display detailed skills analysis"""
-        st.markdown("#### 🎯 Skills Identified")
+        st.markdown(f"#### 🎯 {self.get_translated_text('skills_identified')}")
         
         if st.session_state.candidate_skills:
             col1, col2 = st.columns(2)
             
             with col1:
-                st.markdown("**Technical Skills:**")
+                st.markdown(f"**{self.get_translated_text('technical_skills')}:**")
                 tech_skills = [skill for skill, category, _ in st.session_state.candidate_skills if category == 'technical']
                 if tech_skills:
                     for skill in tech_skills:
                         st.markdown(f'<span class="skill-chip skill-chip-technical">⚡ {skill.title()}</span>', 
                                    unsafe_allow_html=True)
                 else:
-                    st.write("No technical skills detected")
+                    st.write(self.get_translated_text("no_technical_skills"))
             
             with col2:
-                st.markdown("**Soft Skills:**")
+                st.markdown(f"**{self.get_translated_text('soft_skills')}:**")
                 soft_skills = [skill for skill, category, _ in st.session_state.candidate_skills if category == 'soft']
                 if soft_skills:
                     for skill in soft_skills:
                         st.markdown(f'<span class="skill-chip skill-chip-soft">🌟 {skill.title()}</span>', 
                                    unsafe_allow_html=True)
                 else:
-                    st.write("No soft skills detected")
+                    st.write(self.get_translated_text("no_soft_skills"))
             
-            st.metric("Total Skills Identified", len(st.session_state.candidate_skills))
+            st.metric(self.get_translated_text("total_skills"), len(st.session_state.candidate_skills))
         else:
-            st.info("No skills data available")
+            st.info(self.get_translated_text("no_skills_detected"))
 
     def display_bias_analysis(self):
         """Display detailed bias analysis"""
-        st.markdown("#### ⚠️ Bias Detection Results")
+        st.markdown(f"#### ⚠️ {self.get_translated_text('bias_detection_results')}")
         
         if not st.session_state.bias_reports or all(report is None for report in st.session_state.bias_reports):
-            st.success("✅ Excellent! No biases detected in the interview.")
+            st.success(f"✅ {self.get_translated_text('excellent_no_biases')}")
             return
         
         bias_count = 0
@@ -2218,14 +1714,14 @@ Skills: Python, React, SQL, Teamwork, Communication""",
                     st.write(f"**Severity:** {bias_report.get('severity', 'Unknown')}")
         
         if bias_count == 0:
-            st.success("✅ No significant biases detected in the interview responses.")
+            st.success(f"✅ {self.get_translated_text('no_significant_biases')}")
 
     def display_performance_analysis(self):
         """NEW: Display performance analysis with difficulty tracking"""
-        st.markdown("#### 📊 Performance & Difficulty Analysis")
+        st.markdown(f"#### 📊 {self.get_translated_text('performance_analysis')}")
         
         if not st.session_state.answer_scores:
-            st.info("Complete some questions to see performance analysis")
+            st.info(self.get_translated_text("complete_more_questions"))
             return
         
         # Performance metrics
@@ -2233,10 +1729,10 @@ Skills: Python, React, SQL, Teamwork, Communication""",
         
         with col1:
             avg_score = sum(st.session_state.answer_scores) / len(st.session_state.answer_scores)
-            st.metric("Average Answer Quality", f"{avg_score:.1f}/10")
+            st.metric(self.get_translated_text("quality_score"), f"{avg_score:.1f}/10")
         
         with col2:
-            st.metric("Current Difficulty", st.session_state.current_difficulty)
+            st.metric(self.get_translated_text("current_difficulty"), st.session_state.current_difficulty)
         
         with col3:
             improvement = "↑ Improving" if len(st.session_state.answer_scores) > 1 and st.session_state.answer_scores[-1] > st.session_state.answer_scores[0] else "→ Stable"
@@ -2286,14 +1782,14 @@ Skills: Python, React, SQL, Teamwork, Communication""",
 
     def display_ai_insights(self):
         """Display AI-powered insights and analysis"""
-        st.markdown("#### 🤖 AI-Powered Insights")
+        st.markdown(f"#### 🤖 {self.get_translated_text('ai_powered_insights')}")
         
         if not st.session_state.ai_enabled or not self.ai_enhancer.available:
-            st.info("Enable AI Enhancement in the sidebar to get AI-powered insights!")
+            st.info(self.get_translated_text("enable_ai_for_insights"))
             return
         
         if not st.session_state.answer_analysis or all(analysis is None for analysis in st.session_state.answer_analysis):
-            st.info("Complete the interview to see AI analysis of your answers.")
+            st.info(self.get_translated_text("complete_for_ai_analysis"))
             return
         
         # Overall AI Analysis
@@ -2306,7 +1802,7 @@ Skills: Python, React, SQL, Teamwork, Communication""",
             
             if quality_scores:
                 avg_quality = sum(quality_scores) / len(quality_scores)
-                st.metric("📊 Average Answer Quality Score", f"{avg_quality:.1f}/10")
+                st.metric(f"📊 {self.get_translated_text('answer_quality_score')}", f"{avg_quality:.1f}/10")
                 
                 if avg_quality >= 8:
                     st.success("🎉 Excellent! Your answers demonstrate strong experience and clarity.")
@@ -2316,7 +1812,7 @@ Skills: Python, React, SQL, Teamwork, Communication""",
                     st.warning("💡 Consider providing more specific examples and details in your answers.")
         
         # Detailed answer analysis
-        st.markdown("#### 📝 Answer-by-Answer Analysis")
+        st.markdown(f"#### 📝 {self.get_translated_text('answer_by_answer_analysis')}")
         for i, (question, answer, analysis) in enumerate(zip(
             st.session_state.interview_questions,
             st.session_state.candidate_answers,
@@ -2331,10 +1827,10 @@ Skills: Python, React, SQL, Teamwork, Communication""",
                         st.info(answer)
                     
                     with col2:
-                        st.metric("Quality Score", f"{analysis.get('quality_score', 'N/A')}/10")
-                        st.metric("Relevance", f"{analysis.get('relevance_score', 'N/A')}/10")
+                        st.metric(self.get_translated_text("quality_score_label"), f"{analysis.get('quality_score', 'N/A')}/10")
+                        st.metric(self.get_translated_text("relevance"), f"{analysis.get('relevance_score', 'N/A')}/10")
                     
-                    st.markdown("**Strengths:**")
+                    st.markdown(f"**{self.get_translated_text('strengths_label')}:**")
                     for strength in analysis.get('strengths', []):
                         st.write(f"✅ {strength}")
                     
@@ -2342,7 +1838,7 @@ Skills: Python, React, SQL, Teamwork, Communication""",
                     for improvement in analysis.get('improvements', []):
                         st.write(f"📝 {improvement}")
                     
-                    st.markdown("**Skills Demonstrated:**")
+                    st.markdown(f"**{self.get_translated_text('skills_demonstrated')}:**")
                     skills = analysis.get('skills_demonstrated', [])
                     if skills:
                         for skill in skills:
@@ -2352,7 +1848,7 @@ Skills: Python, React, SQL, Teamwork, Communication""",
 
     def display_recommendations(self):
         """Display fairness recommendations"""
-        st.markdown("#### 💡 Recommendations for Fair Hiring")
+        st.markdown(f"#### 💡 {self.get_translated_text('recommendations_for_fair_hiring')}")
         
         recommendations = [
             "✅ Focus on job-relevant skills and experience only",
@@ -2454,7 +1950,7 @@ Skills: Python, React, SQL, Teamwork, Communication""",
 
     def display_detailed_question_review(self):
         """Display detailed question-by-question review in separate tab"""
-        st.markdown('<div class="section-header">📋 Detailed Question Review</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="section-header">📋 {self.get_translated_text("detailed_question_review")}</div>', unsafe_allow_html=True)
         
         for i, (question, answer, bias_report, analysis, follow_up) in enumerate(zip(
             st.session_state.interview_questions,
@@ -2511,11 +2007,26 @@ Skills: Python, React, SQL, Teamwork, Communication""",
         
         # Create tabs for different sections - UPDATED to include Recruiter Dashboard
         if st.session_state.interview_completed:
-            tab1, tab2, tab3, tab4 = st.tabs(["📊 Fairness Dashboard", "👔 Recruiter Analytics", "🕸️ Skills Visualization", "🎤 Interview Review"])
+            tab1, tab2, tab3, tab4 = st.tabs([
+                f"📊 {self.get_translated_text('fairness_dashboard')}",
+                f"👔 {self.get_translated_text('recruiter_dashboard')}",
+                f"🕸️ {self.get_translated_text('skills_visualization')}",
+                f"🎤 {self.get_translated_text('interview_review')}"
+            ])
         elif st.session_state.resume_analyzed:
-            tab1, tab2, tab3, tab4 = st.tabs(["🎤 Interview", "🕸️ Skills Visualization", "📊 Dashboard Preview", "👔 Recruiter View"])
+            tab1, tab2, tab3, tab4 = st.tabs([
+                f"🎤 {self.get_translated_text('interview')}",
+                f"🕸️ {self.get_translated_text('skills_visualization')}",
+                f"📊 {self.get_translated_text('dashboard_preview')}",
+                f"👔 {self.get_translated_text('recruiter_view')}"
+            ])
         else:
-            tab1, tab2, tab3, tab4 = st.tabs(["🎤 Interview", "🕸️ Skills Visualization", "📊 Dashboard Preview", "👔 Recruiter View"])
+            tab1, tab2, tab3, tab4 = st.tabs([
+                f"🎤 {self.get_translated_text('interview')}",
+                f"🕸️ {self.get_translated_text('skills_visualization')}",
+                f"📊 {self.get_translated_text('dashboard_preview')}",
+                f"👔 {self.get_translated_text('recruiter_view')}"
+            ])
         
         with tab1:
             if not st.session_state.resume_analyzed:

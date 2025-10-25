@@ -4,7 +4,7 @@ from datetime import datetime
 import pandas as pd
 
 class HeatmapGenerator:
-    def __init__(self):
+    def _init_(self):
         self.bias_categories = ['Gender', 'Age', 'Ethnicity', 'Family', 'Education', 'Socioeconomic']
         self.severity_colors = {
             'High': '#dc3545',    # Red

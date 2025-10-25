@@ -11,6 +11,7 @@ import json
 import io
 import base64
 import networkx as nx
+from langdetect import detect, DetectorFactory
 
 st.set_page_config(
     page_title="FairAI Hire - Bias-Free Interviews",

@@ -1,0 +1,35 @@
+MARCUS JONES
+Backend Software Engineer
+Seattle, WA
+marcus.jones@email.com | (206) 555-0165
+
+SUMMARY
+Backend engineer with 5+ years of experience building scalable server-side systems and RESTful APIs. Proficient in Java and cloud technologies.
+
+TECHNICAL SKILLS
+
+Programming: Java, Python, SQL, Go
+
+Frameworks: Spring Boot, Django, Hibernate
+
+Cloud/Tools: AWS, Docker, Kubernetes, PostgreSQL
+
+EXPERIENCE
+Backend Engineer - CloudLogic Systems (3 years)
+
+Designed and developed microservices using Java and Spring Boot.
+
+Built and maintained REST APIs handling high-volume traffic.
+
+Containerized applications with Docker and managed deployments on AWS.
+
+Software Developer - DataCore Solutions (2 years)
+
+Created data processing services and contributed to API development.
+
+Wrote complex SQL queries and optimized database performance.
+
+Participated in an Agile Scrum team with bi-weekly releases.
+
+EDUCATION
+BSc Computer Science - Washington State University

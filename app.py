@@ -12,6 +12,7 @@ import io
 import base64
 import networkx as nx
 from langdetect import detect, DetectorFactory
+import aiohttp
 
 st.set_page_config(
     page_title="FairAI Hire - Bias-Free Interviews",

@@ -10,3 +10,4 @@ matplotlib>=3.7.0
 plotly>=5.15.0
 networkx>=3.0
 langdetect>=1.0.9
+aiohttp>=3.8.0

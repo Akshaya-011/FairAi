@@ -102,7 +102,8 @@ class RealtimeAudioVideoProcessor:
                         ret, frame = cap.read()
                         if ret:
                             rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                            video_placeholder.image(rgb_frame, channels="RGB", use_container_width=True)
+                            # FIXED: Remove use_container_width parameter
+                            video_placeholder.image(rgb_frame, channels="RGB")
                             out.write(frame)
                     
                     # Real-time transcription
@@ -376,7 +377,8 @@ class AudioVideoProcessor:
                         if ret:
                             frame_count += 1
                             rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                            video_placeholder.image(rgb_frame, channels="RGB", use_container_width=True)
+                            # FIXED: Remove use_container_width parameter
+                            video_placeholder.image(rgb_frame, channels="RGB")
                             out.write(frame)
                     
                     time.sleep(0.1)
